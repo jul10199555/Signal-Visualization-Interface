@@ -1,6 +1,5 @@
 import customtkinter as ctk
 from app import App
-import matplotlib.animation as animation
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("dark")
