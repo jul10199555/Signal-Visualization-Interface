@@ -6,7 +6,6 @@ class SerialInterface:
         self.port = port
         self.baudrate = baudrate
         self.ser = None
-        self.reading = False
 
     def connect(self):
         '''
@@ -24,8 +23,6 @@ class SerialInterface:
         '''
         Closes microcontroller connection. 
         '''
-
-        self.reading = False
         if self.ser and self.ser.is_open:
             self.ser.close()
     
@@ -42,9 +39,8 @@ class SerialInterface:
         respective callback function.
         '''
         def _read():
-            self.reading = True
             # Must be connected and reading
-            while self.ser and self.reading:
+            while self.ser:
                 try:
                     line = self.ser.readline().decode().strip()
                     if line:
@@ -53,7 +49,6 @@ class SerialInterface:
 
                 except Exception as e:
                     print(f"Read error: {e}")
-                    self.reading = False
                     break   
         # thread so that real-time reading does not block sending commands to device    
         threading.Thread(target=_read, daemon=True).start()

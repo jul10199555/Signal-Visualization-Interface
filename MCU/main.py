@@ -5,7 +5,7 @@ from itertools import count
 import uselect
 
 angle = 0
-pulses = 0
+speed = 0
 cycles = 0
 interval = 1
 running = False
@@ -27,10 +27,14 @@ def process_command():
     '''
     Processes incoming commands from host
     '''
-    global angle, pulses, cycles, interval, running
+    global running, angle, speed, cycles, interval
     command = non_blocking_stdin_readline()
     if command == None:
         pass
+
+    elif command.startswith("START"):
+        running = True
+
     elif command.startswith("SET"):
         parts = command.split()[1:]
         
@@ -38,20 +42,18 @@ def process_command():
             
             if "angle=" in p:
                 angle = float(p.split('=')[1])
-            elif "pulses=" in p:
-                pulses = int(p.split('=')[1])
+            elif "speed=" in p:
+                speed = int(p.split('=')[1])
             elif "cycles=" in p:
                 cycles = int(p.split('=')[1])
             elif "resolution=" in p:
-                interval = 60 / int(p.split('=')[1])
+                interval = 1 / int(p.split('=')[1])
 
 
     elif command.startswith("STOP"):
         angle = 0
-        pulses = 0
+        speed = 0
         cycles = 0
-        interval = 0
-        index = count()
         running = False
     
     elif command.startswith("EXIT"):
@@ -72,5 +74,6 @@ def non_blocking_stdin_readline():
 while True:
     # check for command
     process_command()
-    send_data()
+    if running:
+        send_data()
     time.sleep(interval)
