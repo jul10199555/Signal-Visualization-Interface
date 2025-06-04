@@ -33,46 +33,52 @@ class App(ctk.CTk):
 
         self.serial_interface = SerialInterface()
 
-        # Control Panel (top)
+        # Top-level container for control sections
         control_frame = ctk.CTkFrame(self)
         control_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
-        control_frame.grid_columnconfigure((0,1,2,3,4,5), weight=1)
+        control_frame.grid_columnconfigure(0, weight=1)
+        control_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(control_frame, text="Device Angle:", anchor="w").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        self.angle_entry = ctk.CTkEntry(control_frame, placeholder_text="°")
+        # Device Config Section
+        device_config_frame = ctk.CTkFrame(control_frame)
+        device_config_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        device_config_frame.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(device_config_frame, text="Device Angle:", anchor="w").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.angle_entry = ctk.CTkEntry(device_config_frame, placeholder_text="°")
         self.angle_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(control_frame, text="Device Cycles:", anchor="w").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-        self.cycles_entry = ctk.CTkEntry(control_frame, placeholder_text="#")
+        ctk.CTkLabel(device_config_frame, text="Device Cycles:", anchor="w").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        self.cycles_entry = ctk.CTkEntry(device_config_frame, placeholder_text="#")
         self.cycles_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(control_frame, text="Device Pulses:", anchor="w").grid(row=2, column=0, padx=5, pady=5, sticky="ew")
-        self.speed_entry = ctk.CTkEntry(control_frame, placeholder_text="RPM")
+        ctk.CTkLabel(device_config_frame, text="Device Speed:", anchor="w").grid(row=2, column=0, padx=5, pady=5, sticky="ew")
+        self.speed_entry = ctk.CTkEntry(device_config_frame, placeholder_text="RPM")
         self.speed_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(control_frame, text="X Limit:", anchor="w").grid(row=0, column=2, padx=5, pady=5, sticky="ew")
-        self.xlim_entry = ctk.CTkEntry(control_frame, placeholder_text="(a,b)")
-        self.xlim_entry.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+        self.enter_btn = ctk.CTkButton(device_config_frame, text="Configure Device", command=self.submit_values)
+        self.enter_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=10)
 
-        ctk.CTkLabel(control_frame, text="Y Limit:", anchor="w").grid(row=0, column=4, padx=5, pady=5, sticky="ew")
-        self.ylim_entry = ctk.CTkEntry(control_frame, placeholder_text="(a,b)")
-        self.ylim_entry.grid(row=0, column=5, padx=5, pady=5, sticky="ew")
+        # Graph Config Section
+        graph_config_frame = ctk.CTkFrame(control_frame)
+        graph_config_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        graph_config_frame.grid_columnconfigure((0, 1), weight=1)
 
-        ctk.CTkLabel(control_frame, text="Data Rate:", anchor="w").grid(row=1, column=2, padx=5, pady=5, sticky="ew")
-        self.resolution_entry = ctk.CTkEntry(control_frame, placeholder_text="Hz")
-        self.resolution_entry.grid(row=1, column=3, padx=5, pady=5, sticky="ew")
+        ctk.CTkLabel(graph_config_frame, text="X Limit:", anchor="w").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.xlim_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="(a,b)")
+        self.xlim_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        
-        # Enter Control Values
-        self.enter_btn = ctk.CTkButton(control_frame, text="Configure Device", command=self.submit_values)
-        self.enter_btn.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        ctk.CTkLabel(graph_config_frame, text="Y Limit:", anchor="w").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        self.ylim_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="(a,b)")
+        self.ylim_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        self.download_btn = ctk.CTkButton(control_frame, text="Download Data", command=self.download_data)
-        self.download_btn.grid(row=3, column=4, padx=5, pady=5, sticky="ew")
+        ctk.CTkLabel(graph_config_frame, text="Data Rate:", anchor="w").grid(row=2, column=0, padx=5, pady=5, sticky="ew")
+        self.resolution_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="Hz")
+        self.resolution_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
-        # Enter Graph Data
-        self.resolution_btn = ctk.CTkButton(control_frame, text="Configure Graph", command=self.submit_graph_data)
-        self.resolution_btn.grid(row=3, column=5, padx=5, pady=5, sticky="ew")
+        self.resolution_btn = ctk.CTkButton(graph_config_frame, text="Configure Graph", command=self.submit_graph_data)
+        self.resolution_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=10)
+
 
         # Serial Monitor (bottom)
         monitor_frame = ctk.CTkFrame(self)
@@ -97,13 +103,21 @@ class App(ctk.CTk):
         self.canvas_widget.grid(row=1, column=0, pady=10)
         self.x_vals, self.y_vals = [], []
 
-        # Begin Reading Button
-        self.start_btn = ctk.CTkButton(monitor_frame, text="Start Monitor", command=self.start_serial)
-        self.start_btn.grid(row=2, column=0, pady=10)
+                # Action Buttons Row (bottom of monitor_frame)
+        button_row_frame = ctk.CTkFrame(monitor_frame, fg_color="transparent")
+        button_row_frame.grid(row=2, column=0, pady=10)
 
-        # Stop Device Button
-        self.stop_btn = ctk.CTkButton(monitor_frame, text="Stop", command=self.stop)
-        self.stop_btn.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.start_btn = ctk.CTkButton(button_row_frame, text="Start/Resume", command=self.start_serial)
+        self.start_btn.grid(row=0, column=0, padx=10)
+
+        self.stop_btn = ctk.CTkButton(button_row_frame, text="Stop", command=self.stop)
+        self.stop_btn.grid(row=0, column=1, padx=10)
+
+        self.restart_btn = ctk.CTkButton(button_row_frame, text="Restart", command=self.restart)
+        self.restart_btn.grid(row=0, column=2, padx=10)
+
+        self.download_btn = ctk.CTkButton(button_row_frame, text="Download Data", command=self.download_data)
+        self.download_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
         self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=1000, cache_frame_data=False)
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -196,6 +210,9 @@ class App(ctk.CTk):
             initialdir=os.path.expanduser("~")
         )
         
+        if file_path[-4:] != '.csv':
+            file_path += '.csv'
+        
         data = {'strain': self.x_vals, 'pz_response': self.y_vals}
         df = pd.DataFrame(data)
 
@@ -230,6 +247,15 @@ class App(ctk.CTk):
         '''
         if self.serial_interface.ser and self.serial_interface.ser.is_open:
             self.serial_interface.send_command("START")
+
+    def restart(self):
+        '''
+        Clears the graph and restarts the hardware's duty cycle
+        '''
+        if self.serial_interface.ser and self.serial_interface.ser.is_open:
+            self.serial_interface.send_command("RESTART")
+            self.x_vals = []
+            self.y_vals = []
 
     def get_vals(self, data: list):
         '''
