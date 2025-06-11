@@ -48,6 +48,9 @@ class DataHandler():
         if command == None:
             pass
 
+        elif command.startswith("SYN"):
+            sys.stdout.write("ACK\n")
+
         elif command.startswith("START"):
             self.running = True
 
