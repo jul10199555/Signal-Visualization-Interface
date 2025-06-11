@@ -15,6 +15,7 @@ class SerialInterface:
         '''
         ports = list(serial.tools.list_ports.comports())
 
+        # loop through all open ports. Send SYN, if ACK is heard back, connect to that COM Port
         for port_info in ports:
             try:
                 test_port = port_info.device
@@ -38,6 +39,7 @@ class SerialInterface:
         Closes microcontroller connection. 
         '''
         if self.ser and self.ser.is_open:
+            self.ser.write(b"EXIT\n")
             self.ser.close()
     
     def send_command(self, command: str):

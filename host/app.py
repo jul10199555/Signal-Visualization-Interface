@@ -45,11 +45,12 @@ class MultiChannelPage(ctk.CTkFrame):
         ctk.CTkButton(self, text="Back to Main Menu", command=go_back).pack(pady=10)
 
 class SingleChannelPage(ctk.CTkFrame):
-    def __init__(self, master, go_back):
+    def __init__(self, master, go_back, serial_interface: SerialInterface):
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
 
-        self.serial_interface = SerialInterface()
+        self.serial_interface = serial_interface
+        self.running = False # If true, do not spawn a new thread to read values. If false, clear to spawn thread
 
         ctk.CTkButton(self, text="Back to Main Menu", command=go_back).grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
@@ -141,7 +142,7 @@ class SingleChannelPage(ctk.CTkFrame):
         self.download_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
         self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=1000, cache_frame_data=False)
-        threading.Thread(target=self.auto_connect_serial, daemon=True).start()
+        
 
     def submit_values(self):
         '''
@@ -237,21 +238,6 @@ class SingleChannelPage(ctk.CTkFrame):
 
         df.to_csv(file_path, index=False)
 
-    def auto_connect_serial(self):
-        '''
-        Waits for COM4 to be available, then connects and starts reading.
-        '''
-        while True:
-            try:
-                self.serial_interface.connect()
-                if self.serial_interface.ser and self.serial_interface.ser.is_open:
-                    print("Connected to COM4.")
-                    self.serial_interface.read_lines(self.get_vals)
-                    break
-            except:
-                print("Waiting for COM4...")
-            time.sleep(1)  # Wait before retrying
-
 
     def stop(self):
         '''
@@ -265,6 +251,10 @@ class SingleChannelPage(ctk.CTkFrame):
         Initializes the reading of real-time data from the micro-controller
         '''
         if self.serial_interface.ser and self.serial_interface.ser.is_open:
+            # so that thread isn't spawned again when user resumes graph
+            if self.running == False:
+                self.running = True
+                threading.Thread(target=self.serial_interface.read_lines(self.get_vals), daemon=True)
             self.serial_interface.send_command("START")
 
     def restart(self):
@@ -295,13 +285,6 @@ class SingleChannelPage(ctk.CTkFrame):
         self.line.set_data(self.x_vals, self.y_vals)
         return self.line,
 
-    def close(self):
-        '''
-        Called on the event of closing the GUI.
-        '''
-        self.serial_interface.send_command("EXIT")
-        exit()
-
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -310,9 +293,10 @@ class App(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self.protocol("WM_DELETE_WINDOW", self.close)
+        self.serial_interface = SerialInterface()
 
         self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_multi_channel)
-        self.single_page = SingleChannelPage(self, self.show_main_menu)
+        self.single_page = SingleChannelPage(self, self.show_main_menu, self.serial_interface)
         self.multi_page = MultiChannelPage(self, self.show_main_menu)
 
         self.show_main_menu()
@@ -321,6 +305,7 @@ class App(ctk.CTk):
         self.main_menu.tkraise()
 
     def show_single_channel(self):
+        threading.Thread(target=self.auto_connect_serial, daemon=True).start()
         self.single_page.tkraise()
 
     def show_multi_channel(self):
@@ -328,6 +313,7 @@ class App(ctk.CTk):
 
     def go_back(self):
         self.clear_window()
+        self.serial_interface.disconnect()
         self.show_main_menu()
 
     def clear_window(self):
@@ -335,6 +321,24 @@ class App(ctk.CTk):
             widget.destroy()
 
     def close(self):
+        '''
+        Called on the event of closing the GUI.
+        '''
         self.clear_window()
+        self.serial_interface.disconnect()
         exit()
+
+    def auto_connect_serial(self):
+        '''
+        Waits for COM4 to be available, then connects and starts reading.
+        '''
+        while True:
+            try:
+                self.serial_interface.connect()
+                if self.serial_interface.ser and self.serial_interface.ser.is_open:
+                    print("Connected to COM4.")
+                    break
+            except:
+                print("Waiting for COM4...")
+            time.sleep(1)  # Wait before retrying
 
