@@ -117,9 +117,9 @@ class SingleChannelPage(ctk.CTkFrame):
 
         self.ax.set_xlim(0, 100)
         self.ax.set_ylim(0, 100)
-        self.ax.set_xlabel("Strain, ε (%)")
-        self.ax.set_ylabel("Rel. Resistance Change, ΔR/Ro (%)")
-        self.ax.set_title("Piezoresistive Response")
+        self.ax.set_xlabel("Time Elapsed (s)")
+        self.ax.set_ylabel("Resistance (Ω)")
+        self.ax.set_title("Resistance vs Time")
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=monitor_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
