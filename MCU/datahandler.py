@@ -2,7 +2,6 @@ import sys
 import time
 import random # REMOVE IN FINAL PRODUCT
 from itertools import count #REMOVE IN FINAL PRODUCT
-import uselect
 
 class DataHandler():
     '''
@@ -14,12 +13,8 @@ class DataHandler():
         self.speed = 0
         self.cycles_remaining = 0
         self.interval = 1
-        self.running = False
+        self.paused = True
         self.index = count() # REMOVE IN FINAL PRODUCT
-
-
-        self.spoll = uselect.poll()
-        self.spoll.register(sys.stdin, uselect.POLLIN)
 
     def run(self):
         '''
@@ -28,9 +23,6 @@ class DataHandler():
         while True:
             # check for command
             self._process_command()
-            if self.running:
-                self._send_data()
-            time.sleep(self.interval)
 
     def _send_data(self): # REMOVE IN FINAL PRODUCT
         '''
@@ -44,7 +36,7 @@ class DataHandler():
         '''
         Processes incoming commands from host
         '''
-        command = self._non_blocking_stdin_readline()
+        command = sys.stdin.readline()
         if command == None:
             pass
 
@@ -52,7 +44,11 @@ class DataHandler():
             sys.stdout.write("ACK\n")
 
         elif command.startswith("START"):
-            self.running = True
+            self.paused = False
+
+        elif command.startswith("REQUEST"):
+            if self.paused == False:
+                self._send_data()
 
         elif command.startswith("SET"):
             parts = command.split()[1:]
@@ -66,18 +62,10 @@ class DataHandler():
                 elif "cycles=" in p:
                     cycles = int(p.split('=')[1])
                     self.cycles_remaining = cycles
-                elif "resolution=" in p:
-                    self.interval = 1 / int(p.split('=')[1])
 
 
-        elif command.startswith("STOP"):
-            self.angle = 0
-            self.speed = 0
-            self.cycles = 0
-            self.running = False
-
-        elif command.startswith("RESTART")    :
-            self.cycles_remaining = self.cycles
+        elif command.startswith("PAUSE"):
+            self.paused = True
         
         elif command.startswith("EXIT"):
             sys.exit()
@@ -85,11 +73,11 @@ class DataHandler():
         else:
             print("No command received")
 
-    def _non_blocking_stdin_readline(self):
-        '''
-        Polls stdin for input
-        '''
-        res = self.spoll.poll(0)
-        if res:
-            return sys.stdin.readline() # Read one character
-        return None
+    # def _non_blocking_stdin_readline(self):
+    #     '''
+    #     Polls stdin for input
+    #     '''
+    #     res = self.spoll.poll(0)
+    #     if res:
+    #         return sys.stdin.readline() # Read one character
+    #     return None

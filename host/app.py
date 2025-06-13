@@ -51,6 +51,8 @@ class SingleChannelPage(ctk.CTkFrame):
 
         self.serial_interface = serial_interface
         self.running = False # If true, do not spawn a new thread to read values. If false, clear to spawn thread
+        self.paused = True
+        self.sampling_rate = 1
 
         ctk.CTkButton(self, text="Back to Main Menu", command=go_back).grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
@@ -113,7 +115,7 @@ class SingleChannelPage(ctk.CTkFrame):
         ctk.CTkLabel(monitor_frame, text="Live Serial Data", font=ctk.CTkFont(size=16)).grid(row=0, column=0, pady=(10, 5))
 
         self.fig, self.ax = plt.subplots()
-        (self.line,) = self.ax.plot([], [], "bo", lw=2)
+        (self.line,) = self.ax.plot([], [], "b-", lw=2)
 
         self.ax.set_xlim(0, 100)
         self.ax.set_ylim(0, 100)
@@ -132,10 +134,10 @@ class SingleChannelPage(ctk.CTkFrame):
         self.start_btn = ctk.CTkButton(button_row_frame, text="Start/Resume", command=self.start_serial)
         self.start_btn.grid(row=0, column=0, padx=10)
 
-        self.stop_btn = ctk.CTkButton(button_row_frame, text="Stop", command=self.stop)
+        self.stop_btn = ctk.CTkButton(button_row_frame, text="Pause", command=self.pause)
         self.stop_btn.grid(row=0, column=1, padx=10)
 
-        self.restart_btn = ctk.CTkButton(button_row_frame, text="Restart", command=self.restart)
+        self.restart_btn = ctk.CTkButton(button_row_frame, text="Stop", command=self.stop)
         self.restart_btn.grid(row=0, column=2, padx=10)
 
         self.download_btn = ctk.CTkButton(button_row_frame, text="Download Data", command=self.download_data)
@@ -187,6 +189,7 @@ class SingleChannelPage(ctk.CTkFrame):
         xlim = self.xlim_entry.get()
         ylim = self.ylim_entry.get()
 
+        self.sampling_rate = int(resolution)
         # Check if entries are valid. Empty entries are assigned default values
         resolution = iv.check_int(resolution, RESOLUTION_DEFAULT)
         xlim = iv.check_lim(xlim, X_LIM_DEFAULT)
@@ -238,13 +241,21 @@ class SingleChannelPage(ctk.CTkFrame):
 
         df.to_csv(file_path, index=False)
 
+    def pause(self):
+        '''
+        Pauses data acquisition
+        '''
+        if self.serial_interface.ser and self.serial_interface.ser.is_open:
+            self.serial_interface.send_command("PAUSE")
+            self.paused = True
+
 
     def stop(self):
         '''
         Stops the hardware device.
         '''
         if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command("STOP")
+            self.serial_interface.send_command("EXIT")
 
     def start_serial(self):
         '''
@@ -254,17 +265,20 @@ class SingleChannelPage(ctk.CTkFrame):
             # so that thread isn't spawned again when user resumes graph
             if self.running == False:
                 self.running = True
-                threading.Thread(target=self.serial_interface.read_lines(self.get_vals), daemon=True)
-            self.serial_interface.send_command("START")
+                threading.Thread(target=self.serial_interface.read_lines, args=(self.get_vals,), daemon=True).start()
+            # thread exits when data acquisition paused. Can only be reopened if acquisition
+            # is resumed 
+            if self.paused:
+                print("Initializing data acquisition")
+                self.serial_interface.send_command("START")
+                self.paused = False
+                threading.Thread(target=self.request_data, daemon=True).start()
 
-    def restart(self):
-        '''
-        Clears the graph and restarts the hardware's duty cycle
-        '''
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command("RESTART")
-            self.x_vals = []
-            self.y_vals = []
+    def request_data(self):
+        while self.paused == False:
+            self.serial_interface.send_command("REQUEST")
+            time.sleep(1 / self.sampling_rate)
+        print("Paused, thread exiting")
 
     def get_vals(self, data: list):
         '''
