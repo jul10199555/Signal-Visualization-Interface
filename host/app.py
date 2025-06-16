@@ -4,6 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import input_validation as iv
+from matplotlib.widgets import Slider
 import os
 import pandas as pd
 import time
@@ -123,6 +124,7 @@ class SingleChannelPage(ctk.CTkFrame):
         self.ax.set_ylabel("Resistance (Ω)")
         self.ax.set_title("Resistance vs Time")
 
+
         self.canvas = FigureCanvasTkAgg(self.fig, master=monitor_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.grid(row=1, column=0, pady=10)
@@ -215,15 +217,12 @@ class SingleChannelPage(ctk.CTkFrame):
         self.ax.set_xlim(xlim)
         self.ax.set_ylim(ylim)
 
-        cmd = f"SET resolution={resolution}"
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command(cmd)
-
         if self.ani:
             self.ani.event_source.stop()
         
         new_interval = 1000/int(resolution)
         self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=new_interval, cache_frame_data=False)
+        self.slider.slidermax = self.x_vals[-1]
         self.canvas.draw()
 
     def download_data(self):
