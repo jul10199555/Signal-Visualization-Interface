@@ -26,8 +26,6 @@ class MainMenuPage(ctk.CTkFrame):
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
 
-        formfields = {}
-
         ctk.CTkLabel(self, text="Main Menu", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=40)
 
         icon_frame = ctk.CTkFrame(self)
@@ -43,6 +41,10 @@ class ControlPage(ctk.CTkFrame):
     def __init__(self, master, go_back, serial_interface: SerialInterface): # make sure to add MUX settings
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
+        machine_form_fields = {}
+        material_form_fields = {}
+        payload = {}
+        self.channels = 0
 
         def pack_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -55,6 +57,8 @@ class ControlPage(ctk.CTkFrame):
             repetitions = ctk.CTkEntry(rep_row, placeholder_text="e.g., 500", width=100)
             repetitions.pack(side="left")
 
+            # add dict item
+            machine_form_fields["repetitions"] = repetitions
 
         def pack_load_and_displacement(parent):
                 
@@ -96,8 +100,8 @@ class ControlPage(ctk.CTkFrame):
                 load_cell_row.pack(anchor="w", pady=5)
 
                 ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
-                load_cell_entry = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
-                load_cell_entry.pack(side="left")
+                load_cell_cap = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
+                load_cell_cap.pack(side="left")
 
                 # 🔹 Voltage-Newton Equivalence row
                 volt_force_row = ctk.CTkFrame(load_frame, fg_color="transparent")
@@ -112,11 +116,22 @@ class ControlPage(ctk.CTkFrame):
                 force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
                 force_units.pack(side="left", padx=2)
 
+                machine_form_fields["displacement readings"] = disp_readings_available
+                machine_form_fields["displacement voltage"] = disp_voltage
+                machine_form_fields["displacement distance"] = disp_dist
+                machine_form_fields["displacement distance units"] = disp_dist_units
+
+                machine_form_fields["load readings"] = load_readings_available
+                machine_form_fields["load cell capacity"] = load_cell_cap
+                machine_form_fields["load voltage"] = voltage_entry
+                machine_form_fields["load force"] = force_entry
+                machine_form_fields["load force units"] = force_units
+
         def pack_hx711_load(parent):
             ctk.CTkLabel(parent, text="Load (HX711 Load Cell)", font=("Helvetica", 16, "bold")).pack(anchor="w")
             load_frame = ctk.CTkFrame(parent, fg_color="transparent")
             load_frame.pack(padx=20, pady=5, anchor="w")
-            ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?").pack(anchor="w")
+            load_readings = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?").pack(anchor="w")
 
             # 🔹 Load Cell Capacity row (above, on same line)
             load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
@@ -128,17 +143,21 @@ class ControlPage(ctk.CTkFrame):
             force_units = ctk.CTkComboBox(load_cell_row, values=["N", "kg", "g"], width=80)
             force_units.pack(side="left", padx=2)
 
+            machine_form_fields["hx711 load readings"] = load_readings
+            machine_form_fields["hx711 load cell capacity"] = load_cell_entry
+            machine_form_fields["hx711 load cell units"] = force_units
+
         def pack_prototype(parent):
             ctk.CTkLabel(parent, text="Prototype Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
             prototype_frame = ctk.CTkFrame(parent, fg_color="transparent")
             prototype_frame.pack(padx=20, pady=5, anchor="w")
 
-            cycles_frame = ctk.CTkFrame(prototype_frame)
-            cycles_frame.pack(anchor="w", pady=5)
+            # cycles_frame = ctk.CTkFrame(prototype_frame)
+            # cycles_frame.pack(anchor="w", pady=5)
 
-            ctk.CTkLabel(cycles_frame, text="Repetition Cycles:").pack(side="left", anchor="w", padx=(0,5))
-            cycles = ctk.CTkEntry(cycles_frame, placeholder_text="e.g., 500")
-            cycles.pack(side="left")
+            # ctk.CTkLabel(cycles_frame, text="Repetition Cycles:").pack(side="left", anchor="w", padx=(0,5))
+            # cycles = ctk.CTkEntry(cycles_frame, placeholder_text="e.g., 500")
+            # cycles.pack(side="left")
 
             strain_frame = ctk.CTkFrame(prototype_frame)
             strain_frame.pack(anchor="w", pady=5)
@@ -147,76 +166,225 @@ class ControlPage(ctk.CTkFrame):
             strain = ctk.CTkEntry(strain_frame, placeholder_text="e.g., 5")
             strain.pack(side="left")
 
-        def option_picker(option):
-            for widget in machine_settings.winfo_children():
+            machine_form_fields["strain"] = strain
+
+        def pack_channel(parent):
+            ctk.CTkLabel(parent, text="Channels", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            channel_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            channel_frame.pack(padx=20, pady=5, anchor="w")
+
+            ctk.CTkLabel(channel_frame, text="Default Number of Channels:").pack(side="left", anchor="w", padx=(0,5))
+            channels = ctk.CTkEntry(channel_frame, placeholder_text=self.channels)
+            channels.pack(side="left")
+
+            material_form_fields["channels"] = channels
+   
+        def pack_debond(parent):
+            ctk.CTkLabel(parent, text="Debond", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            has_debond = ctk.CTkCheckBox(parent, text="Sensor Has Debond")
+            has_debond.pack(padx=20, anchor="w")
+
+            material_form_fields["debond"] = has_debond
+
+        def pack_sensor_config(parent):
+            ctk.CTkLabel(parent, text="Sensor Configuration", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+            length_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            length_frame.pack(padx=20,pady=5, anchor="w")
+
+            width_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            width_frame.pack(padx=20, pady=5, anchor="w")
+
+            height_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            height_frame.pack(padx=20, pady=5, anchor="w")
+
+            sensor_num_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            sensor_num_frame.pack(padx=20, pady=5, anchor="w")
+
+            ctk.CTkLabel(length_frame, text="Sensor Length (mm):").pack(side="left", anchor="w", padx=(0, 5))
+            length = ctk.CTkEntry(length_frame, placeholder_text="e.g., 5")
+            length.pack(side="left")
+
+            ctk.CTkLabel(width_frame, text="Sensor Width (mm):").pack(side="left", anchor="w", padx=(0, 5))
+            width = ctk.CTkEntry(width_frame, placeholder_text="e.g., 5")
+            width.pack(side="left")
+
+            ctk.CTkLabel(height_frame, text="Sensor Height (mm):").pack(side="left", anchor="w", padx=(0, 5))
+            height = ctk.CTkEntry(height_frame, placeholder_text="e.g., 5")
+            height.pack(side="left")
+
+            ctk.CTkLabel(sensor_num_frame, text="Sensor Number:").pack(side="left", anchor="w", padx=(0, 5))
+            sensor_num = ctk.CTkEntry(sensor_num_frame, placeholder_text="e.g., 1")
+            sensor_num.pack(side="left")
+
+            material_form_fields["length"] = length
+            material_form_fields["width"] = width
+            material_form_fields["height"] = height
+            material_form_fields["sensor number"] = sensor_num
+
+        def pack_contact(parent):
+            ctk.CTkLabel(parent, text="Contact Configuration", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+            row_contact_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            row_contact_frame.pack(padx=20,pady=5, anchor="w")
+
+            col_contact_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            col_contact_frame.pack(padx=20, pady=5, anchor="w")
+
+            ctk.CTkLabel(row_contact_frame, text=f"Sensor Row Where Contact was Set (1-{int(self.channels/2)}):").pack(side="left", anchor="w", padx=(0, 5))
+            row = ctk.CTkEntry(row_contact_frame, placeholder_text="e.g., 5")
+            row.pack(side="left")
+
+            ctk.CTkLabel(col_contact_frame, text=f"Sensor Column Where Contact was Set (1-{int(self.channels/2)}):").pack(side="left", anchor="w", padx=(0, 5))
+            col = ctk.CTkEntry(col_contact_frame, placeholder_text="e.g., 5")
+            col.pack(side="left")
+
+            material_form_fields["row contact"] = row
+            material_form_fields["column contact"] = col
+        
+        def machine_option_picker(option):
+            for widget in machine_settings_frame.winfo_children():
                 widget.destroy()
+
+            machine_form_fields.clear() # clear dict every time option is chosen
+
             if option == machine_options[0]: # shimadzu
-                pack_load_and_displacement(machine_settings)
-            elif option == machine_options[1]:
-                pack_test_settings(machine_settings)
-                pack_load_and_displacement(machine_settings)
-            elif option == machine_options[2]:
-                pack_test_settings(machine_settings)
-                pack_load_and_displacement(machine_settings)
-                pack_hx711_load(machine_settings)
-            elif option == machine_options[3]:
-                pack_test_settings(machine_settings)
-                initial_coord_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                pack_load_and_displacement(machine_settings_frame)
+            elif option == machine_options[1]: # MTS
+                pack_test_settings(machine_settings_frame)
+                pack_load_and_displacement(machine_settings_frame)
+            elif option == machine_options[2]: # Mini-Shimadzu
+                pack_test_settings(machine_settings_frame)
+                pack_load_and_displacement(machine_settings_frame)
+                pack_hx711_load(machine_settings_frame)
+            elif option == machine_options[3]: # Festo
+                pack_test_settings(machine_settings_frame)
+                initial_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 initial_coord_frame.pack(padx=20, pady=5, anchor="w")
 
                 ctk.CTkLabel(initial_coord_frame, text="Non-Contact/Initial Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
                 initial_coord = ctk.CTkEntry(initial_coord_frame, placeholder_text="e.g., 5,1,12")
                 initial_coord.pack(side="left")
 
-                final_coord_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                final_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 final_coord_frame.pack(padx=20, pady=5, anchor="w")
 
                 ctk.CTkLabel(final_coord_frame, text="Contact/Final Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
                 final_coord = ctk.CTkEntry(final_coord_frame, placeholder_text="e.g., 0,5,2")
                 final_coord.pack(side="left")
-            elif option == machine_options[4]:
-                pack_prototype(machine_settings)
-                motor_speed_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+
+                machine_form_fields["initial coordinates"] = initial_coord
+                machine_form_fields["final coordinates"] = final_coord
+            elif option == machine_options[4]: # Angular Bending
+                pack_test_settings(machine_settings_frame)
+                pack_prototype(machine_settings_frame)
+                motor_speed_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 motor_speed_frame.pack(padx=20, pady=5, anchor="w")
                 
                 ctk.CTkLabel(motor_speed_frame, text="Motor Speed (RPM):").pack(anchor="w", side="left", padx=(0, 5))
                 motor_speed = ctk.CTkEntry(motor_speed_frame, placeholder_text="e.g., 60")
                 motor_speed.pack(side="left")
 
-                angle_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                angle_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 angle_frame.pack(padx=20, pady=5, anchor="w")
                 
                 ctk.CTkLabel(angle_frame, text="Device Angle (°):").pack(anchor="w", side="left", padx=(0, 5))
                 angle = ctk.CTkEntry(angle_frame, placeholder_text="e.g., 60")
                 angle.pack(side="left")
-            elif option == machine_options[5]:
-                pack_prototype(machine_settings)
-                motor_disp_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+
+                machine_form_fields["motor speed"] = motor_speed
+                machine_form_fields["angle"] = angle
+
+            elif option == machine_options[5]: # Single-Axis Strain
+                pack_test_settings(machine_settings_frame)
+                pack_prototype(machine_settings_frame)
+                motor_disp_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 motor_disp_frame.pack(padx=20, pady=5, anchor="w")
                 
                 ctk.CTkLabel(motor_disp_frame, text="Motor Displacement (mm/min):").pack(anchor="w", side="left", padx=(0, 5))
                 motor_disp = ctk.CTkEntry(motor_disp_frame, placeholder_text="e.g., 60")
                 motor_disp.pack(side="left")
 
-            
-            
+                machine_form_fields["motor displacement"] = motor_disp
 
+        def material_option_picker(option):
+            for widget in material_settings_frame.winfo_children():
+                widget.destroy()
+
+            material_form_fields.clear() # clear dict every time option is chosen
+
+            if option == material_options[0] or option == material_options[1]:
+                self.channels = 21
+                pack_channel(material_settings_frame)
+                pack_debond(material_settings_frame)
+                pack_sensor_config(material_settings_frame)
+            elif option == material_options[2]:
+                self.channels = 10
+                pack_channel(material_settings_frame)
+                pack_contact(material_settings_frame, 10)
+                pack_sensor_config(material_settings_frame)
+            elif option == material_options[3] or option == material_options[4]:
+                self.channels = 8
+                pack_channel(material_settings_frame)
+                pack_contact(material_settings_frame)
+                pack_sensor_config(material_settings_frame)
+            
+        def submit_values():
+            payload.clear()
+            for key, widget in machine_form_fields.items():
+                payload[key] = widget.get()
+            for key, widget in material_form_fields.items():
+                if key == "channels" and widget.get() == "":
+                    payload[key] = self.channels
+                else:
+                    payload[key] = widget.get()
+            print(payload)
+            print()
+            
+        
         ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
         ctk.CTkButton(self, text="Back to Main Menu", command=go_back).pack(pady=10)
 
-        # Set Frame to hold options
+        # Main param frame
         param_frame = ctk.CTkFrame(self, fg_color="transparent")
         param_frame.pack(pady=40)
 
-        # Set options for Options Dropdown Menu
-        machine_options = ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]
-        ctk.CTkComboBox(param_frame, values=machine_options, command=option_picker).grid(row=0, column=0)
+        # Frame to hold dropdown + settings frames in two vertical columns
+        top_row_frame = ctk.CTkFrame(param_frame, fg_color="transparent")
+        top_row_frame.pack()
 
-        machine_settings = ctk.CTkFrame(param_frame)
-        machine_settings.grid(row=1)
+        # === Column 1: Machine combo + settings ===
+        machine_column = ctk.CTkFrame(top_row_frame, fg_color="transparent")
+        machine_column.pack(side="left", padx=10)
+
+        machine_options = ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]
+        machine_combo = ctk.CTkComboBox(machine_column, values=machine_options, command=machine_option_picker)
+        machine_combo.pack(pady=(0, 5))
+
+        machine_settings_frame = ctk.CTkFrame(machine_column, width=300, height=100, border_width=1, corner_radius=6)
+        machine_settings_frame.pack()
+
+        # === Column 2: Material combo + settings ===
+        material_column = ctk.CTkFrame(top_row_frame, fg_color="transparent")
+        material_column.pack(side="left", padx=10)
 
         material_options = ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]
-        ctk.CTkComboBox(param_frame, values=material_options).grid(row=0, column=1)
+        material_combo = ctk.CTkComboBox(material_column, values=material_options, command=material_option_picker)
+        material_combo.pack(pady=(0, 5))
+
+        material_settings_frame = ctk.CTkFrame(material_column, width=300, height=100, border_width=1, corner_radius=6)
+        material_settings_frame.pack()
+
+        # Sampling rate row
+        sampling_frame = ctk.CTkFrame(param_frame, fg_color="transparent")
+        sampling_frame.pack(pady=20)
+
+        ctk.CTkLabel(sampling_frame, text="Measurement Time Frequency (ms):").pack(side="left", padx=(0, 5))
+        sampling_rate = ctk.CTkEntry(sampling_frame, placeholder_text="e.g., 1000")
+        sampling_rate.pack(side="left")
+
+        # Submit button
+        ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
 
 
 class SingleChannelPage(ctk.CTkFrame):
@@ -396,7 +564,7 @@ class SingleChannelPage(ctk.CTkFrame):
         
         new_interval = 1000/int(resolution)
         self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=new_interval, cache_frame_data=False)
-        self.slider.slidermax = self.x_vals[-1]
+        #self.slider.slidermax = self.x_vals[-1]
         self.canvas.draw()
 
     def download_data(self):
