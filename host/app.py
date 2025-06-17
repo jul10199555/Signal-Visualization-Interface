@@ -26,6 +26,8 @@ class MainMenuPage(ctk.CTkFrame):
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
 
+        formfields = {}
+
         ctk.CTkLabel(self, text="Main Menu", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=40)
 
         icon_frame = ctk.CTkFrame(self)
@@ -34,16 +36,188 @@ class MainMenuPage(ctk.CTkFrame):
         single_btn = ctk.CTkButton(icon_frame, text="Single Channel", width=200, height=100, command=show_single_channel)
         single_btn.grid(row=0, column=0, padx=20)
 
-        multi_btn = ctk.CTkButton(icon_frame, text="Multi-Channel", width=200, height=100, command=show_multi_channel)
+        multi_btn = ctk.CTkButton(icon_frame, text="Control Page", width=200, height=100, command=show_multi_channel)
         multi_btn.grid(row=0, column=1, padx=20)
 
-class MultiChannelPage(ctk.CTkFrame):
-    def __init__(self, master, go_back):
+class ControlPage(ctk.CTkFrame):
+    def __init__(self, master, go_back, serial_interface: SerialInterface): # make sure to add MUX settings
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
 
-        ctk.CTkLabel(self, text="Multi-Channel Mode", font=ctk.CTkFont(size=20)).pack(pady=20)
+        def pack_test_settings(parent):
+            ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+            # Create a horizontal row for the label and entry
+            rep_row = ctk.CTkFrame(parent, fg_color="transparent")
+            rep_row.pack(anchor="w", padx=20, pady=5)
+
+            ctk.CTkLabel(rep_row, text="Program Cycles Repetitions:").pack(side="left", padx=(0, 5))
+            repetitions = ctk.CTkEntry(rep_row, placeholder_text="e.g., 500", width=100)
+            repetitions.pack(side="left")
+
+
+        def pack_load_and_displacement(parent):
+                
+            # Displacement header
+                ctk.CTkLabel(parent, text="Displacement", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+                # Indented frame for displacement fields
+                displacement_fields = ctk.CTkFrame(parent, fg_color="transparent")
+                displacement_fields.pack(padx=20, pady=5, anchor="w")
+
+                disp_readings_available = ctk.CTkCheckBox(displacement_fields, text="Are Displacement Readings Available?")
+                disp_readings_available.pack(anchor="w")
+
+                # Voltage-distance row frame
+                volt_dist_row = ctk.CTkFrame(displacement_fields, fg_color="transparent")
+                volt_dist_row.pack(pady=5, anchor="w")
+
+                ctk.CTkLabel(volt_dist_row, text="Voltage-Distance Equivalence:").pack(side="left", padx=(0, 5))
+                disp_voltage = ctk.CTkEntry(volt_dist_row, width=60, placeholder_text="V")
+                disp_voltage.pack(side="left", padx=2)
+                ctk.CTkLabel(volt_dist_row, text="V =").pack(side="left", padx=2)
+                disp_dist = ctk.CTkEntry(volt_dist_row, width=60)
+                disp_dist.pack(side="left", padx=2)
+                disp_dist_units = ctk.CTkComboBox(volt_dist_row, values=["mm", "cm", "in"], width=80)
+                disp_dist_units.pack(side="left", padx=2)
+
+                # Load Header
+                ctk.CTkLabel(parent, text="Load", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+
+                # Indented frame for Load fields
+                load_frame = ctk.CTkFrame(parent, fg_color="transparent")
+                load_frame.pack(padx=20, pady=5, anchor="w", fill="x")
+
+                load_readings_available = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?")
+                load_readings_available.pack(anchor="w")
+                # 🔹 Load Cell Capacity row (above, on same line)
+                load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
+                load_cell_row.pack(anchor="w", pady=5)
+
+                ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
+                load_cell_entry = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
+                load_cell_entry.pack(side="left")
+
+                # 🔹 Voltage-Newton Equivalence row
+                volt_force_row = ctk.CTkFrame(load_frame, fg_color="transparent")
+                volt_force_row.pack(anchor="w", pady=5)
+
+                ctk.CTkLabel(volt_force_row, text="Voltage-Newton Equivalence:").pack(side="left", padx=(0, 5))
+                voltage_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="V")
+                voltage_entry.pack(side="left", padx=2)
+                ctk.CTkLabel(volt_force_row, text="V =").pack(side="left", padx=2)
+                force_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="e.g., 500")
+                force_entry.pack(side="left", padx=2)
+                force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
+                force_units.pack(side="left", padx=2)
+
+        def pack_hx711_load(parent):
+            ctk.CTkLabel(parent, text="Load (HX711 Load Cell)", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            load_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            load_frame.pack(padx=20, pady=5, anchor="w")
+            ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?").pack(anchor="w")
+
+            # 🔹 Load Cell Capacity row (above, on same line)
+            load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
+            load_cell_row.pack(anchor="w", pady=5)
+
+            ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
+            load_cell_entry = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
+            load_cell_entry.pack(side="left")
+            force_units = ctk.CTkComboBox(load_cell_row, values=["N", "kg", "g"], width=80)
+            force_units.pack(side="left", padx=2)
+
+        def pack_prototype(parent):
+            ctk.CTkLabel(parent, text="Prototype Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            prototype_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            prototype_frame.pack(padx=20, pady=5, anchor="w")
+
+            cycles_frame = ctk.CTkFrame(prototype_frame)
+            cycles_frame.pack(anchor="w", pady=5)
+
+            ctk.CTkLabel(cycles_frame, text="Repetition Cycles:").pack(side="left", anchor="w", padx=(0,5))
+            cycles = ctk.CTkEntry(cycles_frame, placeholder_text="e.g., 500")
+            cycles.pack(side="left")
+
+            strain_frame = ctk.CTkFrame(prototype_frame)
+            strain_frame.pack(anchor="w", pady=5)
+
+            ctk.CTkLabel(strain_frame, text="Maximum Strain (N):").pack(side="left", anchor="w", padx=(0,5))
+            strain = ctk.CTkEntry(strain_frame, placeholder_text="e.g., 5")
+            strain.pack(side="left")
+
+        def option_picker(option):
+            for widget in machine_settings.winfo_children():
+                widget.destroy()
+            if option == machine_options[0]: # shimadzu
+                pack_load_and_displacement(machine_settings)
+            elif option == machine_options[1]:
+                pack_test_settings(machine_settings)
+                pack_load_and_displacement(machine_settings)
+            elif option == machine_options[2]:
+                pack_test_settings(machine_settings)
+                pack_load_and_displacement(machine_settings)
+                pack_hx711_load(machine_settings)
+            elif option == machine_options[3]:
+                pack_test_settings(machine_settings)
+                initial_coord_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                initial_coord_frame.pack(padx=20, pady=5, anchor="w")
+
+                ctk.CTkLabel(initial_coord_frame, text="Non-Contact/Initial Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
+                initial_coord = ctk.CTkEntry(initial_coord_frame, placeholder_text="e.g., 5,1,12")
+                initial_coord.pack(side="left")
+
+                final_coord_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                final_coord_frame.pack(padx=20, pady=5, anchor="w")
+
+                ctk.CTkLabel(final_coord_frame, text="Contact/Final Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
+                final_coord = ctk.CTkEntry(final_coord_frame, placeholder_text="e.g., 0,5,2")
+                final_coord.pack(side="left")
+            elif option == machine_options[4]:
+                pack_prototype(machine_settings)
+                motor_speed_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                motor_speed_frame.pack(padx=20, pady=5, anchor="w")
+                
+                ctk.CTkLabel(motor_speed_frame, text="Motor Speed (RPM):").pack(anchor="w", side="left", padx=(0, 5))
+                motor_speed = ctk.CTkEntry(motor_speed_frame, placeholder_text="e.g., 60")
+                motor_speed.pack(side="left")
+
+                angle_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                angle_frame.pack(padx=20, pady=5, anchor="w")
+                
+                ctk.CTkLabel(angle_frame, text="Device Angle (°):").pack(anchor="w", side="left", padx=(0, 5))
+                angle = ctk.CTkEntry(angle_frame, placeholder_text="e.g., 60")
+                angle.pack(side="left")
+            elif option == machine_options[5]:
+                pack_prototype(machine_settings)
+                motor_disp_frame = ctk.CTkFrame(machine_settings, fg_color="transparent")
+                motor_disp_frame.pack(padx=20, pady=5, anchor="w")
+                
+                ctk.CTkLabel(motor_disp_frame, text="Motor Displacement (mm/min):").pack(anchor="w", side="left", padx=(0, 5))
+                motor_disp = ctk.CTkEntry(motor_disp_frame, placeholder_text="e.g., 60")
+                motor_disp.pack(side="left")
+
+            
+            
+
+        ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
         ctk.CTkButton(self, text="Back to Main Menu", command=go_back).pack(pady=10)
+
+        # Set Frame to hold options
+        param_frame = ctk.CTkFrame(self, fg_color="transparent")
+        param_frame.pack(pady=40)
+
+        # Set options for Options Dropdown Menu
+        machine_options = ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]
+        ctk.CTkComboBox(param_frame, values=machine_options, command=option_picker).grid(row=0, column=0)
+
+        machine_settings = ctk.CTkFrame(param_frame)
+        machine_settings.grid(row=1)
+
+        material_options = ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]
+        ctk.CTkComboBox(param_frame, values=material_options).grid(row=0, column=1)
+
 
 class SingleChannelPage(ctk.CTkFrame):
     def __init__(self, master, go_back, serial_interface: SerialInterface):
@@ -308,9 +482,9 @@ class App(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.serial_interface = SerialInterface()
 
-        self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_multi_channel)
+        self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_control_page)
         self.single_page = SingleChannelPage(self, self.show_main_menu, self.serial_interface)
-        self.multi_page = MultiChannelPage(self, self.show_main_menu)
+        self.control_page = ControlPage(self, self.show_main_menu, self.serial_interface)
 
         self.show_main_menu()
 
@@ -321,8 +495,8 @@ class App(ctk.CTk):
         threading.Thread(target=self.auto_connect_serial, daemon=True).start()
         self.single_page.tkraise()
 
-    def show_multi_channel(self):
-        self.multi_page.tkraise()
+    def show_control_page(self):
+        self.control_page.tkraise()
 
     def go_back(self):
         self.clear_window()
