@@ -45,6 +45,7 @@ class ControlPage(ctk.CTkFrame):
         material_form_fields = {}
         payload = {}
         self.channels = 0
+        self.error_flag = False
 
         def pack_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -58,7 +59,7 @@ class ControlPage(ctk.CTkFrame):
             repetitions.pack(side="left")
 
             # add dict item
-            machine_form_fields["repetitions"] = repetitions
+            machine_form_fields["repetitions"] = {"widget": repetitions, "validate": lambda val: val.isdigit()}
 
         def pack_load_and_displacement(parent):
                 
@@ -116,16 +117,16 @@ class ControlPage(ctk.CTkFrame):
                 force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
                 force_units.pack(side="left", padx=2)
 
-                machine_form_fields["displacement readings"] = disp_readings_available
-                machine_form_fields["displacement voltage"] = disp_voltage
-                machine_form_fields["displacement distance"] = disp_dist
-                machine_form_fields["displacement distance units"] = disp_dist_units
+                machine_form_fields["displacement readings"] = {"widget": disp_readings_available, "validate": None}
+                machine_form_fields["displacement voltage"] = {"widget": disp_voltage, "validate": iv.check_float}
+                machine_form_fields["displacement distance"] = {"widget": disp_dist, "validate": iv.check_float}
+                machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["mm", "cm", "in"]}
 
-                machine_form_fields["load readings"] = load_readings_available
-                machine_form_fields["load cell capacity"] = load_cell_cap
-                machine_form_fields["load voltage"] = voltage_entry
-                machine_form_fields["load force"] = force_entry
-                machine_form_fields["load force units"] = force_units
+                machine_form_fields["load readings"] = {"widget": load_readings_available, "validate": None}
+                machine_form_fields["load cell capacity"] = {"widget": load_cell_cap, "validate": iv.check_float}
+                machine_form_fields["load voltage"] = {"widget": voltage_entry, "validate": iv.check_float}
+                machine_form_fields["load force"] = {"widget": force_entry, "validate": iv.check_float}
+                machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ["kN", "N", "kg", "g"]}
 
         def pack_hx711_load(parent):
             ctk.CTkLabel(parent, text="Load (HX711 Load Cell)", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -143,9 +144,9 @@ class ControlPage(ctk.CTkFrame):
             force_units = ctk.CTkComboBox(load_cell_row, values=["N", "kg", "g"], width=80)
             force_units.pack(side="left", padx=2)
 
-            machine_form_fields["hx711 load readings"] = load_readings
-            machine_form_fields["hx711 load cell capacity"] = load_cell_entry
-            machine_form_fields["hx711 load cell units"] = force_units
+            machine_form_fields["hx711 load readings"] = {"widget": load_readings, "validate": None}
+            machine_form_fields["hx711 load cell capacity"] = {"widget": load_cell_entry, "validate": iv.check_float}
+            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ["N", "kg", "g"]}
 
         def pack_prototype(parent):
             ctk.CTkLabel(parent, text="Prototype Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -166,7 +167,7 @@ class ControlPage(ctk.CTkFrame):
             strain = ctk.CTkEntry(strain_frame, placeholder_text="e.g., 5")
             strain.pack(side="left")
 
-            machine_form_fields["strain"] = strain
+            machine_form_fields["strain"] = {"widget": strain, "validate": iv.check_float}
 
         def pack_channel(parent):
             ctk.CTkLabel(parent, text="Channels", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -177,14 +178,14 @@ class ControlPage(ctk.CTkFrame):
             channels = ctk.CTkEntry(channel_frame, placeholder_text=self.channels)
             channels.pack(side="left")
 
-            material_form_fields["channels"] = channels
+            material_form_fields["channels"] = {"widget": channels, "validate": lambda val: val.isdigit()}
    
         def pack_debond(parent):
             ctk.CTkLabel(parent, text="Debond", font=("Helvetica", 16, "bold")).pack(anchor="w")
             has_debond = ctk.CTkCheckBox(parent, text="Sensor Has Debond")
             has_debond.pack(padx=20, anchor="w")
 
-            material_form_fields["debond"] = has_debond
+            material_form_fields["debond"] = {"widget": has_debond, "validate": None}
 
         def pack_sensor_config(parent):
             ctk.CTkLabel(parent, text="Sensor Configuration", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -217,10 +218,10 @@ class ControlPage(ctk.CTkFrame):
             sensor_num = ctk.CTkEntry(sensor_num_frame, placeholder_text="e.g., 1")
             sensor_num.pack(side="left")
 
-            material_form_fields["length"] = length
-            material_form_fields["width"] = width
-            material_form_fields["height"] = height
-            material_form_fields["sensor number"] = sensor_num
+            material_form_fields["length"] = {"widget": length, "validate": iv.check_float}
+            material_form_fields["width"] = {"widget": width, "validate": iv.check_float}
+            material_form_fields["height"] = {"widget": height, "validate": iv.check_float}
+            material_form_fields["sensor number"] = {"widget": sensor_num, "validate": lambda val: val.isdigit()}
 
         def pack_contact(parent):
             ctk.CTkLabel(parent, text="Contact Configuration", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -239,8 +240,8 @@ class ControlPage(ctk.CTkFrame):
             col = ctk.CTkEntry(col_contact_frame, placeholder_text="e.g., 5")
             col.pack(side="left")
 
-            material_form_fields["row contact"] = row
-            material_form_fields["column contact"] = col
+            material_form_fields["row contact"] = {"widget": row, "validate": lambda val: val.isdigit()}
+            material_form_fields["column contact"] = {"widget": col, "validate": lambda val: val.isdigit()}
         
         def machine_option_picker(option):
             for widget in machine_settings_frame.winfo_children():
@@ -321,25 +322,47 @@ class ControlPage(ctk.CTkFrame):
             elif option == material_options[2]:
                 self.channels = 10
                 pack_channel(material_settings_frame)
-                pack_contact(material_settings_frame, 10)
+                pack_contact(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
             elif option == material_options[3] or option == material_options[4]:
                 self.channels = 8
                 pack_channel(material_settings_frame)
                 pack_contact(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
-            
-        def submit_values():
-            payload.clear()
-            for key, widget in machine_form_fields.items():
+
+        def extract(key, meta):
+
+            widget = meta["widget"]
+            validate = meta["validate"]
+
+            # user left channel box blank, indicating they want defaul no. active channels
+            if key == "channels" and widget.get() == "":
+                payload[key] = self.channels
+                return
+
+            if isinstance(widget, ctk.CTkCheckBox):
                 payload[key] = widget.get()
-            for key, widget in material_form_fields.items():
-                if key == "channels" and widget.get() == "":
-                    payload[key] = self.channels
+
+            elif isinstance(widget, ctk.CTkEntry) or isinstance(widget, ctk.CTkComboBox):
+                value = widget.get()
+
+                if validate(value):
+                    payload[key] = value
+                    widget.configure(border_color="gray50")
                 else:
-                    payload[key] = widget.get()
-            print(payload)
-            print()
+                    self.error_flag = 1
+                    widget.configure(border_color="red")
+
+        def submit_values():
+            self.error_flag = 0
+            for key, meta in machine_form_fields.items():
+                extract(key, meta)
+
+            for key, meta in material_form_fields.items():
+                extract(key, meta)
+
+            if not self.error_flag:
+                print(payload)
             
         
         ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
