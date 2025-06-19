@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import input_validation as iv
 from matplotlib.widgets import Slider
+import serial.tools.list_ports as list_ports
 import os
 import pandas as pd
 import time
@@ -21,6 +22,55 @@ X_LIM_DEFAULT = (0, 100)
 Y_LIM_DEFAULT = (0, 100)
 
 # GUI Pages
+class FirstExecutionMenu(ctk.CTkFrame):
+    def __init__(self, master, show_main_menu, serial_interface: SerialInterface):
+        def get_com_ports():
+            port_info = ["Select a Port"]
+            for port in list_ports.comports():
+                port_info.append(f"{port.description}")
+            return port_info
+        
+        def update_com_ports():
+            port_dropdown.configure(values=get_com_ports())
+
+        def select_port(entry):
+            for port in list_ports.comports():
+                if port.device in entry:
+                    self.port = port.device
+
+        def select_board(entry):
+            if entry in ["MUX08", "MUX32"]:
+                self.board = entry
+            
+        def request_connect():
+            try:
+                serial_interface.connect(self.port)
+                show_main_menu()
+            except:
+                return
+        
+        super().__init__(master)
+        self.grid(row=0, column=0, sticky="nsew")
+
+        ports = get_com_ports()
+        self.port = None
+
+        ctk.CTkLabel(self, text="Select a COM Port", font=("Helvetica", 16, "bold")).pack(pady=40)
+
+        port_frame = ctk.CTkFrame(self)
+        port_frame.pack(pady=20)
+
+        port_dropdown = ctk.CTkComboBox(port_frame, values=ports, width=200, command=select_port)
+        port_dropdown.pack(side="left", padx=(0, 10))
+
+        refresh_button = ctk.CTkButton(port_frame, text="Refresh Ports", command=update_com_ports)
+        refresh_button.pack(side="left")
+
+        board_dropdown = ctk.CTkComboBox(self, values=["Select a Board", "MUX32", "MUX08"], command=select_board)
+        board_dropdown.pack(pady=20)
+
+        ctk.CTkButton(self, text="Submit", command=request_connect).pack(pady=20)
+
 class MainMenuPage(ctk.CTkFrame):
     def __init__(self, master, show_single_channel, show_multi_channel):
         super().__init__(master)
@@ -249,16 +299,16 @@ class ControlPage(ctk.CTkFrame):
 
             machine_form_fields.clear() # clear dict every time option is chosen
 
-            if option == machine_options[0]: # shimadzu
+            if option == machine_options[1]: # shimadzu
                 pack_load_and_displacement(machine_settings_frame)
-            elif option == machine_options[1]: # MTS
+            elif option == machine_options[2]: # MTS
                 pack_test_settings(machine_settings_frame)
                 pack_load_and_displacement(machine_settings_frame)
-            elif option == machine_options[2]: # Mini-Shimadzu
+            elif option == machine_options[3]: # Mini-Shimadzu
                 pack_test_settings(machine_settings_frame)
                 pack_load_and_displacement(machine_settings_frame)
                 pack_hx711_load(machine_settings_frame)
-            elif option == machine_options[3]: # Festo
+            elif option == machine_options[4]: # Festo
                 pack_test_settings(machine_settings_frame)
                 initial_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 initial_coord_frame.pack(padx=20, pady=5, anchor="w")
@@ -276,7 +326,7 @@ class ControlPage(ctk.CTkFrame):
 
                 machine_form_fields["initial coordinates"] = initial_coord
                 machine_form_fields["final coordinates"] = final_coord
-            elif option == machine_options[4]: # Angular Bending
+            elif option == machine_options[5]: # Angular Bending
                 pack_test_settings(machine_settings_frame)
                 pack_prototype(machine_settings_frame)
                 motor_speed_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -314,17 +364,17 @@ class ControlPage(ctk.CTkFrame):
 
             material_form_fields.clear() # clear dict every time option is chosen
 
-            if option == material_options[0] or option == material_options[1]:
+            if option == material_options[1] or option == material_options[2]:
                 self.channels = 21
                 pack_channel(material_settings_frame)
                 pack_debond(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
-            elif option == material_options[2]:
+            elif option == material_options[3]:
                 self.channels = 10
                 pack_channel(material_settings_frame)
                 pack_contact(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
-            elif option == material_options[3] or option == material_options[4]:
+            elif option == material_options[4] or option == material_options[5]:
                 self.channels = 8
                 pack_channel(material_settings_frame)
                 pack_contact(material_settings_frame)
@@ -380,7 +430,7 @@ class ControlPage(ctk.CTkFrame):
         machine_column = ctk.CTkFrame(top_row_frame, fg_color="transparent")
         machine_column.pack(side="left", padx=10)
 
-        machine_options = ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]
+        machine_options = ["Chooze a Machine", "Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]
         machine_combo = ctk.CTkComboBox(machine_column, values=machine_options, command=machine_option_picker)
         machine_combo.pack(pady=(0, 5))
 
@@ -391,7 +441,7 @@ class ControlPage(ctk.CTkFrame):
         material_column = ctk.CTkFrame(top_row_frame, fg_color="transparent")
         material_column.pack(side="left", padx=10)
 
-        material_options = ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]
+        material_options = ["Choose a Material", "CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]
         material_combo = ctk.CTkComboBox(material_column, values=material_options, command=material_option_picker)
         material_combo.pack(pady=(0, 5))
 
@@ -408,7 +458,6 @@ class ControlPage(ctk.CTkFrame):
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
-
 
 class SingleChannelPage(ctk.CTkFrame):
     def __init__(self, master, go_back, serial_interface: SerialInterface):
@@ -676,8 +725,12 @@ class App(ctk.CTk):
         self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_control_page)
         self.single_page = SingleChannelPage(self, self.show_main_menu, self.serial_interface)
         self.control_page = ControlPage(self, self.show_main_menu, self.serial_interface)
+        self.initial_page = FirstExecutionMenu(self, self.show_main_menu, self.serial_interface)
 
-        self.show_main_menu()
+        self.show_execution_page()
+
+    def show_execution_page(self):
+        self.initial_page.tkraise()
 
     def show_main_menu(self):
         self.main_menu.tkraise()

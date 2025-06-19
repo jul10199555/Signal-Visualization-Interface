@@ -9,27 +9,20 @@ class SerialInterface:
         self.baudrate = baudrate
         self.ser = None
 
-    def connect(self):
+    def connect(self, port):
         '''
         Connects to microcontroller.
         '''
-        ports = list(serial.tools.list_ports.comports())
-
         # loop through all open ports. Send SYN, if ACK is heard back, connect to that COM Port
-        for port_info in ports:
-            try:
-                test_port = port_info.device
-                ser = serial.Serial(test_port, self.baudrate, timeout=1)
-                ser.write("SYN\n".encode())
-                resp = ser.readline().decode().strip()
-                time.sleep(0.5)
-                if resp == "ACK":
-                    self.ser = ser
-                    self.port = test_port
-                    return
-                ser.close()
-            except:
-                continue
+
+        ser = serial.Serial(port, self.baudrate, timeout=1)
+        ser.write("SYN\n".encode())
+        resp = ser.readline().decode().strip()
+        time.sleep(0.5)
+        if resp == "ACK":
+            self.ser = ser
+            self.port = port
+            return
 
         
         
