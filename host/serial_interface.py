@@ -1,9 +1,11 @@
 import serial
+import serial.tools.list_ports
 import threading
+import time
 
 class SerialInterface:
-    def __init__(self, port='COM3', baudrate=115200):
-        self.port = port
+    def __init__(self, baudrate=115200):
+        self.port = None
         self.baudrate = baudrate
         self.ser = None
 
@@ -11,19 +13,33 @@ class SerialInterface:
         '''
         Connects to microcontroller.
         '''
-        
-        try:
-            self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+        ports = list(serial.tools.list_ports.comports())
 
-        except serial.SerialException as e:
-            print(f"Error opening serial port: {e}")
-            self.ser = None
+        # loop through all open ports. Send SYN, if ACK is heard back, connect to that COM Port
+        for port_info in ports:
+            try:
+                test_port = port_info.device
+                ser = serial.Serial(test_port, self.baudrate, timeout=1)
+                ser.write("SYN\n".encode())
+                resp = ser.readline().decode().strip()
+                time.sleep(0.5)
+                if resp == "ACK":
+                    self.ser = ser
+                    self.port = test_port
+                    return
+                ser.close()
+            except:
+                continue
+
+        
+        
 
     def disconnect(self):
         '''
         Closes microcontroller connection. 
         '''
         if self.ser and self.ser.is_open:
+            self.ser.write(b"EXIT\n")
             self.ser.close()
     
     def send_command(self, command: str):
