@@ -2,7 +2,7 @@ import serial
 import threading
 
 class SerialInterface:
-    def __init__(self, port='COM4', baudrate=115200):
+    def __init__(self, port='COM3', baudrate=115200):
         self.port = port
         self.baudrate = baudrate
         self.ser = None
