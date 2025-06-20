@@ -19,16 +19,17 @@ then export the current window to a CSV file
 class Payload:
 
     # WINDOW SIZE IS THE AMOUNT OF DEPTH/SCANS OF DATA - Y VALUE
-    def __init__(self, window_size: int, num_rows_detach: int, out_file_name: str,
+    def __init__(self, window_size: int, num_rows_detach: int, out_file_name: str, channels: int = None,
                  keys: list[str] = None):
 
-        if keys is not None:
+        if (keys is not None) and (channels is not None):
+            self.channels = channels
             self.keys = ["Scan", "Time"] + keys
         else:
-            default_channels = 21
+            self.channels = 21
             self.keys = ["Scan", "Time", "temp", "rel_humid", "atm_pres", "tvoc", "lux", "dig0", "dig1", "dig2",
                          "dig3", "sh_disp", "sh_load", "sig_max", "HX711_force"]
-            for ch in range(default_channels):
+            for ch in range(self.channels):
                 self.keys.append(f"R{ch}")
 
         if num_rows_detach > window_size:
@@ -38,7 +39,7 @@ class Payload:
         self.curr_seq = 0
 
         self.data: Dict[str, Deque[Any]] = {}
-        self.window_size = window_size
+        self.window_size = window_size + 1
         self.num_rows_detach = num_rows_detach
         self.out_file_name = out_file_name
 
@@ -89,11 +90,16 @@ class Payload:
         (self.to_dataframe()).to_csv(path, mode="a", index=False, header=not path.exists())
 
     # Convert the data to a pandas' dataframe
-    def to_dataframe(self) -> pandas.DataFrame:
+    def to_dataframe(self, only_channels: bool = False) -> pandas.DataFrame:
+        item_loc = self.channels if only_channels else 0
+
         df = pandas.DataFrame({k: list(v) for k, v in self.data.items()})
         df["Time"] = pandas.to_datetime(df["Time"], utc=True).dt.strftime("%d/%m/%Y %H:%M:%S:%f").str[:-3]
         df = df.astype({"Scan": "int64"})
         return df
+
+    def get_channels(self) -> list[str]:
+        return self.keys[-self.channels:]
 
     # detach num_rows (oldest) rows  from the data and push it to the csv file
     # todo: add a limit for the csv files where it will push to another csv file when the file size is too large
