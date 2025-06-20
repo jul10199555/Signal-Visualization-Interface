@@ -23,7 +23,7 @@ Y_LIM_DEFAULT = (0, 100)
 
 # GUI Pages
 class FirstExecutionMenu(ctk.CTkFrame):
-    def __init__(self, master, show_main_menu, serial_interface: SerialInterface):
+    def __init__(self, master, show_main_menu, serial_interface: SerialInterface, on_board_selected):
         def get_com_ports():
             port_info = ["Select a Port"]
             for port in list_ports.comports():
@@ -44,7 +44,9 @@ class FirstExecutionMenu(ctk.CTkFrame):
             
         def request_connect():
             try:
-                serial_interface.connect(self.port)
+                # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
+                # serial_interface.connect(self.port)
+                on_board_selected(self.board)
                 show_main_menu()
             except:
                 return
@@ -53,7 +55,8 @@ class FirstExecutionMenu(ctk.CTkFrame):
         self.grid(row=0, column=0, sticky="nsew")
 
         ports = get_com_ports()
-        self.port = None
+        self.port = ""
+        self.board = ""
 
         ctk.CTkLabel(self, text="Select a COM Port", font=("Helvetica", 16, "bold")).pack(pady=40)
 
@@ -88,7 +91,7 @@ class MainMenuPage(ctk.CTkFrame):
         multi_btn.grid(row=0, column=1, padx=20)
 
 class ControlPage(ctk.CTkFrame):
-    def __init__(self, master, go_back, serial_interface: SerialInterface): # make sure to add MUX settings
+    def __init__(self, master, go_back, serial_interface: SerialInterface, board: str): # make sure to add MUX settings
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
         machine_form_fields = {}
@@ -96,6 +99,9 @@ class ControlPage(ctk.CTkFrame):
         payload = {}
         self.channels = 0
         self.error_flag = False
+        self.board = board
+        self.machine = ""
+        self.material = ""
 
         def pack_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -111,78 +117,87 @@ class ControlPage(ctk.CTkFrame):
             # add dict item
             machine_form_fields["repetitions"] = {"widget": repetitions, "validate": lambda val: val.isdigit()}
 
+        def pack_material_test_settings(parent):
+            ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
+
+            test_type_dropdown = ctk.CTkComboBox(parent, values=["Test Type", "Cyclic (C)", "Monotonic (F)"])
+            test_type_dropdown.pack(anchor="w", padx=20, pady=5)
+
+            material_form_fields["test type"] = {"widget": test_type_dropdown, "validate": lambda val: val in ["Cyclic (C)", "Monotonic (F)"]}
+
         def pack_load_and_displacement(parent):
                 
             # Displacement header
-                ctk.CTkLabel(parent, text="Displacement", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            ctk.CTkLabel(parent, text="Displacement", font=("Helvetica", 16, "bold")).pack(anchor="w")
 
-                # Indented frame for displacement fields
-                displacement_fields = ctk.CTkFrame(parent, fg_color="transparent")
-                displacement_fields.pack(padx=20, pady=5, anchor="w")
+            # Indented frame for displacement fields
+            displacement_fields = ctk.CTkFrame(parent, fg_color="transparent")
+            displacement_fields.pack(padx=20, pady=5, anchor="w")
 
-                disp_readings_available = ctk.CTkCheckBox(displacement_fields, text="Are Displacement Readings Available?")
-                disp_readings_available.pack(anchor="w")
+            disp_readings_available = ctk.CTkCheckBox(displacement_fields, text="Are Displacement Readings Available?")
+            disp_readings_available.pack(anchor="w")
 
-                # Voltage-distance row frame
-                volt_dist_row = ctk.CTkFrame(displacement_fields, fg_color="transparent")
-                volt_dist_row.pack(pady=5, anchor="w")
+            # Voltage-distance row frame
+            volt_dist_row = ctk.CTkFrame(displacement_fields, fg_color="transparent")
+            volt_dist_row.pack(pady=5, anchor="w")
 
-                ctk.CTkLabel(volt_dist_row, text="Voltage-Distance Equivalence:").pack(side="left", padx=(0, 5))
-                disp_voltage = ctk.CTkEntry(volt_dist_row, width=60, placeholder_text="V")
-                disp_voltage.pack(side="left", padx=2)
-                ctk.CTkLabel(volt_dist_row, text="V =").pack(side="left", padx=2)
-                disp_dist = ctk.CTkEntry(volt_dist_row, width=60)
-                disp_dist.pack(side="left", padx=2)
-                disp_dist_units = ctk.CTkComboBox(volt_dist_row, values=["mm", "cm", "in"], width=80)
-                disp_dist_units.pack(side="left", padx=2)
+            ctk.CTkLabel(volt_dist_row, text="Voltage-Distance Equivalence:").pack(side="left", padx=(0, 5))
+            disp_voltage = ctk.CTkEntry(volt_dist_row, width=60, placeholder_text="V")
+            disp_voltage.pack(side="left", padx=2)
+            ctk.CTkLabel(volt_dist_row, text="V =").pack(side="left", padx=2)
+            disp_dist = ctk.CTkEntry(volt_dist_row, width=60)
+            disp_dist.pack(side="left", padx=2)
+            disp_dist_units = ctk.CTkComboBox(volt_dist_row, values=["mm", "cm", "in"], width=80)
+            disp_dist_units.pack(side="left", padx=2)
 
-                # Load Header
-                ctk.CTkLabel(parent, text="Load", font=("Helvetica", 16, "bold")).pack(anchor="w")
+            # Load Header
+            ctk.CTkLabel(parent, text="Load", font=("Helvetica", 16, "bold")).pack(anchor="w")
 
 
-                # Indented frame for Load fields
-                load_frame = ctk.CTkFrame(parent, fg_color="transparent")
-                load_frame.pack(padx=20, pady=5, anchor="w", fill="x")
+            # Indented frame for Load fields
+            load_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            load_frame.pack(padx=20, pady=5, anchor="w", fill="x")
 
-                load_readings_available = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?")
-                load_readings_available.pack(anchor="w")
-                # 🔹 Load Cell Capacity row (above, on same line)
-                load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
-                load_cell_row.pack(anchor="w", pady=5)
+            load_readings_available = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?")
+            load_readings_available.pack(anchor="w")
+            # 🔹 Load Cell Capacity row (above, on same line)
+            load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
+            load_cell_row.pack(anchor="w", pady=5)
 
-                ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
-                load_cell_cap = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
-                load_cell_cap.pack(side="left")
+            ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
+            load_cell_cap = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
+            load_cell_cap.pack(side="left")
 
-                # 🔹 Voltage-Newton Equivalence row
-                volt_force_row = ctk.CTkFrame(load_frame, fg_color="transparent")
-                volt_force_row.pack(anchor="w", pady=5)
+            # 🔹 Voltage-Newton Equivalence row
+            volt_force_row = ctk.CTkFrame(load_frame, fg_color="transparent")
+            volt_force_row.pack(anchor="w", pady=5)
 
-                ctk.CTkLabel(volt_force_row, text="Voltage-Newton Equivalence:").pack(side="left", padx=(0, 5))
-                voltage_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="V")
-                voltage_entry.pack(side="left", padx=2)
-                ctk.CTkLabel(volt_force_row, text="V =").pack(side="left", padx=2)
-                force_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="e.g., 500")
-                force_entry.pack(side="left", padx=2)
-                force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
-                force_units.pack(side="left", padx=2)
+            ctk.CTkLabel(volt_force_row, text="Voltage-Newton Equivalence:").pack(side="left", padx=(0, 5))
+            voltage_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="V")
+            voltage_entry.pack(side="left", padx=2)
+            ctk.CTkLabel(volt_force_row, text="V =").pack(side="left", padx=2)
+            force_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="e.g., 500")
+            force_entry.pack(side="left", padx=2)
+            force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
+            force_units.pack(side="left", padx=2)
 
-                machine_form_fields["displacement readings"] = {"widget": disp_readings_available, "validate": None}
-                machine_form_fields["displacement voltage"] = {"widget": disp_voltage, "validate": iv.check_float}
-                machine_form_fields["displacement distance"] = {"widget": disp_dist, "validate": iv.check_float}
-                machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["mm", "cm", "in"]}
+            machine_form_fields["displacement readings"] = {"widget": disp_readings_available, "validate": None}
+            machine_form_fields["displacement voltage"] = {"widget": disp_voltage, "validate": iv.check_float}
+            machine_form_fields["displacement distance"] = {"widget": disp_dist, "validate": iv.check_float}
+            machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["mm", "cm", "in"]}
 
-                machine_form_fields["load readings"] = {"widget": load_readings_available, "validate": None}
-                machine_form_fields["load cell capacity"] = {"widget": load_cell_cap, "validate": iv.check_float}
-                machine_form_fields["load voltage"] = {"widget": voltage_entry, "validate": iv.check_float}
-                machine_form_fields["load force"] = {"widget": force_entry, "validate": iv.check_float}
-                machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ["kN", "N", "kg", "g"]}
+            machine_form_fields["load readings"] = {"widget": load_readings_available, "validate": None}
+            machine_form_fields["load cell capacity"] = {"widget": load_cell_cap, "validate": iv.check_float}
+            machine_form_fields["load voltage"] = {"widget": voltage_entry, "validate": iv.check_float}
+            machine_form_fields["load force"] = {"widget": force_entry, "validate": iv.check_float}
+            machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ["kN", "N", "kg", "g"]}
 
         def pack_hx711_load(parent):
             ctk.CTkLabel(parent, text="Load (HX711 Load Cell)", font=("Helvetica", 16, "bold")).pack(anchor="w")
             load_frame = ctk.CTkFrame(parent, fg_color="transparent")
             load_frame.pack(padx=20, pady=5, anchor="w")
-            load_readings = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?").pack(anchor="w")
+            load_readings = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?")
+            load_readings.pack(anchor="w")
 
             # 🔹 Load Cell Capacity row (above, on same line)
             load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
@@ -290,8 +305,8 @@ class ControlPage(ctk.CTkFrame):
             col = ctk.CTkEntry(col_contact_frame, placeholder_text="e.g., 5")
             col.pack(side="left")
 
-            material_form_fields["row contact"] = {"widget": row, "validate": lambda val: val.isdigit()}
-            material_form_fields["column contact"] = {"widget": col, "validate": lambda val: val.isdigit()}
+            material_form_fields["row"] = {"widget": row, "validate": lambda val: val.isdigit()}
+            material_form_fields["column"] = {"widget": col, "validate": lambda val: val.isdigit()}
         
         def machine_option_picker(option):
             for widget in machine_settings_frame.winfo_children():
@@ -299,16 +314,19 @@ class ControlPage(ctk.CTkFrame):
 
             machine_form_fields.clear() # clear dict every time option is chosen
 
-            if option == machine_options[1]: # shimadzu
+            if option != machine_options[0]:
+                self.machine = option
+
+            if option == "Shimadzu": # shimadzu
                 pack_load_and_displacement(machine_settings_frame)
-            elif option == machine_options[2]: # MTS
+            elif option == "MTS": # MTS
                 pack_test_settings(machine_settings_frame)
                 pack_load_and_displacement(machine_settings_frame)
-            elif option == machine_options[3]: # Mini-Shimadzu
+            elif option == "Mini-Shimadzu": # Mini-Shimadzu
                 pack_test_settings(machine_settings_frame)
                 pack_load_and_displacement(machine_settings_frame)
                 pack_hx711_load(machine_settings_frame)
-            elif option == machine_options[4]: # Festo
+            elif option == "Festo": # Festo
                 pack_test_settings(machine_settings_frame)
                 initial_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 initial_coord_frame.pack(padx=20, pady=5, anchor="w")
@@ -326,9 +344,70 @@ class ControlPage(ctk.CTkFrame):
 
                 machine_form_fields["initial coordinates"] = initial_coord
                 machine_form_fields["final coordinates"] = final_coord
-            elif option == machine_options[5]: # Angular Bending
+            elif option == "Angular Bending/Deformation Prototype": # Angular Bending
+                speed_var = ctk.StringVar(value="off")
+                angle_var = ctk.StringVar(value="off")
+                def vary_speed():
+                    for widget in motor_speed_frame.winfo_children():
+                        widget.destroy()
+                    if speed_var.get() == "off":
+                        ctk.CTkLabel(motor_speed_frame, text="Motor Speed (RPM):").pack(anchor="w", side="left", padx=(0, 5))
+                        motor_speed = ctk.CTkEntry(motor_speed_frame, placeholder_text="e.g., 60")
+                        motor_speed.pack(side="left")
+                        
+                        machine_form_fields.pop('initial speed')
+                        machine_form_fields.pop('final speed')
+                        machine_form_fields.pop('speed step')
+
+                        machine_form_fields['motor speed'] = {'widget': motor_speed, 'validate': iv.check_float}
+                    else:
+                        ctk.CTkLabel(motor_speed_frame, text="Motor Speed (RPM) (initial, final, steps):").pack(anchor="w", side="left", padx=(0,5))
+                        initial_speed = ctk.CTkEntry(motor_speed_frame, width=80)
+                        initial_speed.pack(side="left", padx=5)
+                        ctk.CTkLabel(motor_speed_frame, text=", ").pack(side="left", padx=5)
+                        final_speed = ctk.CTkEntry(motor_speed_frame, width=80)
+                        final_speed.pack(side="left", padx=5)
+                        ctk.CTkLabel(motor_speed_frame, text=", ").pack(side="left", padx=5)
+                        step = ctk.CTkEntry(motor_speed_frame, width=80)
+                        step.pack(side="left", padx=5)
+
+                        machine_form_fields.pop('motor speed')
+                        machine_form_fields['initial speed'] = {'widget': initial_speed, 'validate': iv.check_float}
+                        machine_form_fields['final speed'] = {'widget': final_speed, 'validate': iv.check_float}
+                        machine_form_fields['speed step'] = {'widget': step, 'validate': iv.check_float}
+
+                def vary_angle():
+                    for widget in angle_frame.winfo_children():
+                        widget.destroy()
+                    if angle_var.get() == "off":
+                        ctk.CTkLabel(angle_frame, text="Device Angle (°):").pack(anchor="w", side="left", padx=(0, 5))
+                        angle = ctk.CTkEntry(angle_frame, placeholder_text="e.g., 60")
+                        angle.pack(side="left")
+                        
+                        machine_form_fields.pop('initial angle')
+                        machine_form_fields.pop('final angle')
+                        machine_form_fields.pop('angle step')
+
+                        machine_form_fields['angle'] = {'widget': angle, 'validate': iv.check_float}
+                    else:
+                        ctk.CTkLabel(angle_frame, text="Device Angle (°) (initial, final, step):").pack(anchor="w", side="left", padx=(0,5))
+                        initial_angle = ctk.CTkEntry(angle_frame, width=80)
+                        initial_angle.pack(side="left", padx=5)
+                        ctk.CTkLabel(angle_frame, text=", ").pack(side="left", padx=5)
+                        final_angle = ctk.CTkEntry(angle_frame, width=80)
+                        final_angle.pack(side="left", padx=5)
+                        ctk.CTkLabel(angle_frame, text=", ").pack(side="left", padx=5)
+                        step = ctk.CTkEntry(angle_frame, width=80)
+                        step.pack(side="left", padx=5)
+
+                        machine_form_fields.pop('angle')
+                        machine_form_fields['initial angle'] = {'widget': initial_angle, 'validate': iv.check_float}
+                        machine_form_fields['final angle'] = {'widget': final_angle, 'validate': iv.check_float}
+                        machine_form_fields['angle step'] = {'widget': step, 'validate': iv.check_float}
+
                 pack_test_settings(machine_settings_frame)
-                pack_prototype(machine_settings_frame)
+                #pack_prototype(machine_settings_frame)
+                ctk.CTkCheckBox(machine_settings_frame, text="Variable Speed", variable=speed_var, onvalue="on", offvalue="off", command=vary_speed).pack(anchor="w", padx=20)
                 motor_speed_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 motor_speed_frame.pack(padx=20, pady=5, anchor="w")
                 
@@ -336,6 +415,7 @@ class ControlPage(ctk.CTkFrame):
                 motor_speed = ctk.CTkEntry(motor_speed_frame, placeholder_text="e.g., 60")
                 motor_speed.pack(side="left")
 
+                ctk.CTkCheckBox(machine_settings_frame, text="Variable Angle", variable=angle_var, onvalue="on", offvalue="off", command=vary_angle).pack(anchor="w", padx=20)
                 angle_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 angle_frame.pack(padx=20, pady=5, anchor="w")
                 
@@ -343,10 +423,10 @@ class ControlPage(ctk.CTkFrame):
                 angle = ctk.CTkEntry(angle_frame, placeholder_text="e.g., 60")
                 angle.pack(side="left")
 
-                machine_form_fields["motor speed"] = motor_speed
-                machine_form_fields["angle"] = angle
+                machine_form_fields["motor speed"] = {"widget": motor_speed, "validate": iv.check_float}
+                machine_form_fields["angle"] = {"widget": angle, "validate": iv.check_float}
 
-            elif option == machine_options[5]: # Single-Axis Strain
+            elif option == "One-Axis Strain Prototype": # Single-Axis Strain
                 pack_test_settings(machine_settings_frame)
                 pack_prototype(machine_settings_frame)
                 motor_disp_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -356,7 +436,7 @@ class ControlPage(ctk.CTkFrame):
                 motor_disp = ctk.CTkEntry(motor_disp_frame, placeholder_text="e.g., 60")
                 motor_disp.pack(side="left")
 
-                machine_form_fields["motor displacement"] = motor_disp
+                machine_form_fields["motor displacement"] = {"widget": motor_disp, "validate": iv.check_float}
 
         def material_option_picker(option):
             for widget in material_settings_frame.winfo_children():
@@ -364,8 +444,12 @@ class ControlPage(ctk.CTkFrame):
 
             material_form_fields.clear() # clear dict every time option is chosen
 
+            if option != material_options[0]:
+                self.material = option
+
             if option == material_options[1] or option == material_options[2]:
                 self.channels = 21
+                pack_material_test_settings(material_settings_frame)
                 pack_channel(material_settings_frame)
                 pack_debond(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
@@ -393,6 +477,9 @@ class ControlPage(ctk.CTkFrame):
             if isinstance(widget, ctk.CTkCheckBox):
                 payload[key] = widget.get()
 
+            elif isinstance(widget, ctk.CTkComboBox):
+                payload[key] = widget.get()
+
             elif isinstance(widget, ctk.CTkEntry) or isinstance(widget, ctk.CTkComboBox):
                 value = widget.get()
 
@@ -405,6 +492,8 @@ class ControlPage(ctk.CTkFrame):
 
         def submit_values():
             self.error_flag = 0
+            data = ""
+            payload.clear()
             for key, meta in machine_form_fields.items():
                 extract(key, meta)
 
@@ -412,7 +501,52 @@ class ControlPage(ctk.CTkFrame):
                 extract(key, meta)
 
             if not self.error_flag:
-                print(payload)
+                try:
+                    if self.machine == "Shimadzu":
+                        data = f"SMD,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
+                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']},{payload['load force']+payload['load force units']}"
+
+                    elif self.machine == "MTS":
+                        data = f"MTS,{payload["repetitions"]}C"
+                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
+                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
+
+                    elif self.machine == "Mini-Shimadzu":
+                        data = f"MINI,{payload["repetitions"]}C"
+                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
+                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
+                        data += f",{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+payload['hx711 load cell units']}"
+
+                    elif self.machine == "Angular Bending/Deformation Prototype":
+                        data = f"BEND,{payload['repetitions']}C"
+                        if payload.get('motor speed'):
+                            data += f",{payload['motor speed']}RPM"
+                        else:
+                            data += f",VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
+                        if payload.get('angle'):
+                            data += f",{payload['angle']}DEG"
+                        else:
+                            data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
+
+
+                    elif self.machine == "One-Axis Strain Prototype":
+                        data = f"OAX,{payload['repetitions']}C"
+                        data += f",{payload['strain']}N,{payload['motor displacement']}mm"
+
+                    if self.material == "CNT-GFW":
+                        data += f",CNT,{payload["test type"][-2]},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
+                    elif self.material == "GS-GFW":
+                        data += f",GS,{payload["test type"][-2]},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
+                    elif self.material == "MWCNT":
+                        data += f",MW,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+                    elif self.material == "MXene":
+                        data += f",MX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+                    elif self.material == "Cx-Alpha":
+                        data += f",CX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+                    print(data)
+                except Exception as e:
+                    print(e)
+                    print("Error: Machine and Material Selections Incompatible!")
             
         
         ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
@@ -724,10 +858,14 @@ class App(ctk.CTk):
 
         self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_control_page)
         self.single_page = SingleChannelPage(self, self.show_main_menu, self.serial_interface)
-        self.control_page = ControlPage(self, self.show_main_menu, self.serial_interface)
-        self.initial_page = FirstExecutionMenu(self, self.show_main_menu, self.serial_interface)
+        self.control_page = None # created later
+        self.initial_page = FirstExecutionMenu(self, self.show_main_menu, self.serial_interface, self.on_board_selected)
 
         self.show_execution_page()
+
+    def on_board_selected(self, board):
+        self.control_page = ControlPage(self, self.go_back, self.serial_interface, board)
+        self.show_control_page()
 
     def show_execution_page(self):
         self.initial_page.tkraise()
