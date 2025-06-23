@@ -10,6 +10,8 @@ import os
 import pandas as pd
 import time
 import threading
+from payload import Payload
+from multi_display import WaveformApp
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -23,7 +25,7 @@ Y_LIM_DEFAULT = (0, 100)
 
 # GUI Pages
 class FirstExecutionMenu(ctk.CTkFrame):
-    def __init__(self, master, show_main_menu, serial_interface: SerialInterface, on_board_selected):
+    def __init__(self, master, serial_interface: SerialInterface, on_board_selected):
         def get_com_ports():
             port_info = ["Select a Port"]
             for port in list_ports.comports():
@@ -43,13 +45,15 @@ class FirstExecutionMenu(ctk.CTkFrame):
                 self.board = entry
             
         def request_connect():
-            try:
-                # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
-                # serial_interface.connect(self.port)
-                on_board_selected(self.board)
-                show_main_menu()
-            except:
-                return
+            # try:
+            #     # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
+            #     # serial_interface.connect(self.port)
+            #     on_board_selected(self.board)
+            #     # show_main_menu()
+            # except Exception as e:
+            #     print(e)
+            #     return
+            on_board_selected(self.board)
         
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")
@@ -74,26 +78,10 @@ class FirstExecutionMenu(ctk.CTkFrame):
 
         ctk.CTkButton(self, text="Submit", command=request_connect).pack(pady=20)
 
-class MainMenuPage(ctk.CTkFrame):
-    def __init__(self, master, show_single_channel, show_multi_channel):
-        super().__init__(master)
-        self.grid(row=0, column=0, sticky="nsew")
-
-        ctk.CTkLabel(self, text="Main Menu", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=40)
-
-        icon_frame = ctk.CTkFrame(self)
-        icon_frame.pack(pady=20)
-
-        single_btn = ctk.CTkButton(icon_frame, text="Single Channel", width=200, height=100, command=show_single_channel)
-        single_btn.grid(row=0, column=0, padx=20)
-
-        multi_btn = ctk.CTkButton(icon_frame, text="Control Page", width=200, height=100, command=show_multi_channel)
-        multi_btn.grid(row=0, column=1, padx=20)
-
 class ControlPage(ctk.CTkFrame):
-    def __init__(self, master, go_back, serial_interface: SerialInterface, board: str): # make sure to add MUX settings
+    def __init__(self, master, serial_interface: SerialInterface, board: str): # make sure to add MUX settings
         super().__init__(master)
-        self.grid(row=0, column=0, sticky="nsew")
+        # self.grid(row=0, column=0, sticky="nsew")
         machine_form_fields = {}
         material_form_fields = {}
         payload = {}
@@ -550,7 +538,6 @@ class ControlPage(ctk.CTkFrame):
             
         
         ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
-        ctk.CTkButton(self, text="Back to Main Menu", command=go_back).pack(pady=10)
 
         # Main param frame
         param_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -604,8 +591,6 @@ class SingleChannelPage(ctk.CTkFrame):
         self.running = False # If true, do not spawn a new thread to read values. If false, clear to spawn thread
         self.paused = True
         self.sampling_rate = 1
-
-        ctk.CTkButton(self, text="Back to Main Menu", command=go_back).grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
         # Reusing your existing implementation under here
         self.grid_rowconfigure(1, weight=1)
@@ -848,32 +833,86 @@ class SingleChannelPage(ctk.CTkFrame):
         self.line.set_data(self.x_vals, self.y_vals)
         return self.line,
 
+class Navbar(ctk.CTkFrame):
+    def __init__(self, master, switch_frame):
+        super().__init__(master)
+        self.switch_frame = switch_frame
+        self.nav = ctk.CTkSegmentedButton(
+            self,
+            width=400,
+            values=["Settings", "Waveform", "Heatmap", "Calc."],
+            corner_radius=12,
+            command=self.switch_frame  # TODO: IMPLEMENT COMMAND FOR HEADER NAVIGATION
+        )
+        self.nav.set("Settings")
+        self.nav.pack(side="top")
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Signal Visualization Interface")
         self.geometry("1000x800")
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Row 1 will hold pages
         self.grid_columnconfigure(0, weight=1)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.serial_interface = SerialInterface()
 
-        self.main_menu = MainMenuPage(self, self.show_single_channel, self.show_control_page)
-        self.single_page = SingleChannelPage(self, self.show_main_menu, self.serial_interface)
-        self.control_page = None # created later
-        self.initial_page = FirstExecutionMenu(self, self.show_main_menu, self.serial_interface, self.on_board_selected)
+        # Placeholders for navbar and pages
+        self.navbar = None
+        self.page_container = ctk.CTkFrame(self)
+        self.page_container.grid(row=1, column=0, sticky="nsew")
+        self.page_container.grid_rowconfigure(0, weight=1)
+        self.page_container.grid_columnconfigure(0, weight=1)
 
-        self.show_execution_page()
+
+        # Initial page
+        self.initial_page = FirstExecutionMenu(self, self.serial_interface, self.on_board_selected)
+        self.initial_page.grid(row=0, column=0, sticky="nsew")
+
+        # Pages dict to manage different pages
+        self.pages = {}
+
 
     def on_board_selected(self, board):
-        self.control_page = ControlPage(self, self.go_back, self.serial_interface, board)
-        self.show_control_page()
+        # Remove initial page
+        self.initial_page.destroy()
+
+        extra_keys = (
+            ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
+            + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
+        )
+
+        p = Payload(
+            window_size=1000000,
+            num_rows_detach=10,
+            out_file_name="output/10k_test.csv",
+            keys=extra_keys,
+            channels=21
+        )
+
+        # Show Navbar
+        self.navbar = Navbar(self, self.switch_frame)
+        self.navbar.grid(row=0, column=0, sticky="ew", pady=5)
+
+        # Initialize pages
+        self.pages["Settings"] = ControlPage(self.page_container, self.serial_interface, board)
+        self.pages["Waveform"] = WaveformApp(self.page_container, p)
+        # self.pages["Heatmap"] = HeatmapPage(self.page_container)  # Replace with real class
+        # self.pages["Calc."] = CalculationPage(self.page_container)  # Replace with real class
+
+        for page in self.pages.values():
+            page.grid(row=0, column=0, sticky="nsew")
+
+        self.switch_frame("Settings")
+
+    def switch_frame(self, selected):
+        page = self.pages.get(selected)
+        if page:
+            page.tkraise()
+
 
     def show_execution_page(self):
         self.initial_page.tkraise()
-
-    def show_main_menu(self):
-        self.main_menu.tkraise()
 
     def show_single_channel(self):
         threading.Thread(target=self.auto_connect_serial, daemon=True).start()
@@ -881,11 +920,6 @@ class App(ctk.CTk):
 
     def show_control_page(self):
         self.control_page.tkraise()
-
-    def go_back(self):
-        self.clear_window()
-        self.serial_interface.disconnect()
-        self.show_main_menu()
 
     def clear_window(self):
         for widget in self.winfo_children():
