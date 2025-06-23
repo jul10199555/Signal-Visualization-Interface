@@ -1,28 +1,17 @@
-def check_int(entry: str, default):
+def check_int(entry: str):
     '''
     Check if given entry is of int data type. If entry is null, returns default
     '''
-    if entry == "":
-        return default
-    elif entry.isdigit():
-        return entry
-    else:
-        return None
+    return entry.isdigit() or entry == ""
     
-def check_float(entry: str, default):
+def check_float(entry: str):
     '''
     Check if given entry is of float data type. If entry is null, returns default
     '''
     try:
-        if entry == "":
-            return default
-        num = float(entry)
-        if num > 0:
-            return num
-        else:
-            return None
+        return float(entry)
     except:
-        return None
+        return 0
     
 def check_lim(entry: str, default):
     '''
