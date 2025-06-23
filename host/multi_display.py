@@ -2,7 +2,7 @@
 from typing import Dict
 
 import customtkinter as ctk
-import matplotlib.dates as mdates  # add once at the top of the file
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas
 import seaborn as sns
