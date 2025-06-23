@@ -13,10 +13,10 @@ class SerialInterface:
         '''
         Connects to microcontroller.
         '''
-        # loop through all open ports. Send SYN, if ACK is heard back, connect to that COM Port
+        # loop through all open ports. Send 0, if ACK is heard back, connect to that COM Port
 
         ser = serial.Serial(port, self.baudrate, timeout=1)
-        ser.write("SYN\n".encode())
+        ser.write("0\n".encode())
         resp = ser.readline().decode().strip()
         time.sleep(0.5)
         if resp == "ACK":

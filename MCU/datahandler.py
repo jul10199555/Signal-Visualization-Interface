@@ -40,7 +40,7 @@ class DataHandler():
         if command == None:
             pass
 
-        elif command.startswith("SYN"):
+        elif command.startswith("0"):
             sys.stdout.write("ACK\n")
 
         elif command.startswith("START"):

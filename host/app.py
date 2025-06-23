@@ -503,7 +503,7 @@ class ControlPage(ctk.CTkFrame):
             if not self.error_flag:
                 try:
                     if self.machine == "Shimadzu":
-                        data = f"SMD,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
+                        data = f"SMDZ,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
                         data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']},{payload['load force']+payload['load force units']}"
 
                     elif self.machine == "MTS":
@@ -589,6 +589,8 @@ class ControlPage(ctk.CTkFrame):
         ctk.CTkLabel(sampling_frame, text="Measurement Time Frequency (ms):").pack(side="left", padx=(0, 5))
         sampling_rate = ctk.CTkEntry(sampling_frame, placeholder_text="e.g., 1000")
         sampling_rate.pack(side="left")
+
+        machine_form_fields["sampling rate"] = {'widget': sampling_rate, 'validate': lambda val: val.isdigit()}
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
