@@ -8,18 +8,18 @@ import pandas
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from host.payload import Payload
+from payload import Payload
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 
-class WaveformApp(ctk.CTk):
+class WaveformApp(ctk.CTkFrame):
 
     # SAMPLING FREQ IN HZ
-    def __init__(self, payload: Payload, sampling_freq: int = 10):
+    def __init__(self, master, payload: Payload, sampling_freq: int = 10):
         # THE POSITION FOR THE RESISTIVE CHANNELS WILL BE [LENGTH - # CHANNELS : ]
-        super().__init__()
+        super().__init__(master)
         self.sampling_freq = sampling_freq
 
         self.payload = payload
@@ -39,19 +39,6 @@ class WaveformApp(ctk.CTk):
 
         self.window_size_label = list(self.time_period.keys())[time_half_len]
         self.window_size_disp = self.time_period[self.window_size_label]
-
-        self.title("Waveform Monitor")
-        self.geometry("1400x750")
-        self.minsize(700, 500)
-
-        nav = ctk.CTkSegmentedButton(
-            self,
-            values=["Settings", "Waveform", "Heatmap", "Calc."],
-            corner_radius=12,
-            command=self._noop  # TODO: IMPLEMENT COMMAND FOR HEADER NAVIGATION
-        )
-        nav.set("Waveform")
-        nav.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
 
         # MAIN
         body = ctk.CTkFrame(self, fg_color="transparent")
@@ -170,18 +157,18 @@ class WaveformApp(ctk.CTk):
         self.canvas.draw_idle()
 
 
-if __name__ == "__main__":
-    extra_keys = (
-            ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
-            + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
-    )
+# if __name__ == "__main__":
+#     extra_keys = (
+#             ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
+#             + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
+#     )
 
-    p = Payload(
-        window_size=1000000,
-        num_rows_detach=10,
-        out_file_name="output/10k_test.csv",
-        keys=extra_keys,
-        channels=21
-    )
+#     p = Payload(
+#         window_size=1000000,
+#         num_rows_detach=10,
+#         out_file_name="output/10k_test.csv",
+#         keys=extra_keys,
+#         channels=21
+#     )
 
-    WaveformApp(p).mainloop()
+#     WaveformApp(p).mainloop()
