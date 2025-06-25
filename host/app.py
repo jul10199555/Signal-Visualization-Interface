@@ -84,6 +84,7 @@ class ControlPage(ctk.CTkFrame):
         # self.grid(row=0, column=0, sticky="nsew")
         machine_form_fields = {}
         material_form_fields = {}
+        board_fields = {}
         payload = {}
         self.channels = 0
         self.error_flag = False
@@ -465,9 +466,6 @@ class ControlPage(ctk.CTkFrame):
             if isinstance(widget, ctk.CTkCheckBox):
                 payload[key] = widget.get()
 
-            elif isinstance(widget, ctk.CTkComboBox):
-                payload[key] = widget.get()
-
             elif isinstance(widget, ctk.CTkEntry) or isinstance(widget, ctk.CTkComboBox):
                 value = widget.get()
 
@@ -488,25 +486,39 @@ class ControlPage(ctk.CTkFrame):
             for key, meta in material_form_fields.items():
                 extract(key, meta)
 
+            for key, meta in board_fields.items():
+                extract(key, meta)
+
             if not self.error_flag:
                 try:
+                    if board == "MUX32":
+                        data = f"MUX32,ENV_{payload['temp units'] if payload['temp checkbox'] else "NT"}"
+                        data += f"_{"RH" if payload['rh checkbox'] else "NRH"}_{payload['pressure units'] if payload['pressure checkbox'] else "NP"}"
+                        data += f"_{payload['gas units'] if payload['gas checkbox'] else "NG"}"
+                        data += f"_{payload['lux units'] + "_" + payload['lux bits'] if payload['light checkbox'] else "NL"}"
+
+                    else:
+                        data = "MUX08"
+
+                    data += ","
+
                     if self.machine == "Shimadzu":
-                        data = f"SMDZ,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
+                        data += f"SMDZ,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
                         data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']},{payload['load force']+payload['load force units']}"
 
                     elif self.machine == "MTS":
-                        data = f"MTS,{payload["repetitions"]}C"
+                        data += f"MTS,{payload["repetitions"]}C"
                         data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
                         data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
 
                     elif self.machine == "Mini-Shimadzu":
-                        data = f"MINI,{payload["repetitions"]}C"
+                        data += f"MINI,{payload["repetitions"]}C"
                         data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
                         data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
                         data += f",{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+payload['hx711 load cell units']}"
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
-                        data = f"BEND,{payload['repetitions']}C"
+                        data += f"BEND,{payload['repetitions']}C"
                         if payload.get('motor speed'):
                             data += f",{payload['motor speed']}RPM"
                         else:
@@ -518,7 +530,7 @@ class ControlPage(ctk.CTkFrame):
 
 
                     elif self.machine == "One-Axis Strain Prototype":
-                        data = f"OAX,{payload['repetitions']}C"
+                        data += f"OAX,{payload['repetitions']}C"
                         data += f",{payload['strain']}N,{payload['motor displacement']}mm"
 
                     if self.material == "CNT-GFW":
@@ -538,6 +550,55 @@ class ControlPage(ctk.CTkFrame):
             
         
         ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
+
+        if board == "MUX32":
+            def config_light():
+                lux_units.configure(state="normal" if light_checkbox.get() else "disabled")
+                lux_bits.configure(state="normal" if light_checkbox.get() else "disabled")
+
+            env_frame = ctk.CTkFrame(self, fg_color="transparent")
+            env_frame.pack(pady=5)
+
+            light_frame = ctk.CTkFrame(self, fg_color="transparent")
+            light_frame.pack(pady=5)
+
+            temp_units = ctk.CTkComboBox(env_frame, values=["C", "F"], state="disabled")
+            temp_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Temperature Measurement", command=lambda: temp_units.configure(state="normal" if temp_checkbox.get() else "disabled"))
+            temp_checkbox.pack(side="left", padx=10)
+            temp_units.pack(side="left", padx=10)
+
+            rh_checkbox = ctk.CTkCheckBox(env_frame, text="Enable R.H% Measurement")
+            rh_checkbox.pack(side="left", padx=10)
+
+            pressure_units = ctk.CTkComboBox(env_frame, values=["hPa", "mBar", "mmHg"], state="disabled")
+            pressure_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Atm. Pressure Measurement", command=lambda: pressure_units.configure(state="normal" if pressure_checkbox.get() else "disabled"))
+            pressure_checkbox.pack(side="left", padx=10)
+            pressure_units.pack(side="left", padx=10)
+
+            gas_units = ctk.CTkComboBox(env_frame, values=["KOhms", "TVoC Scale"], state="disabled")
+            gas_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Gas Measurement", command=lambda: gas_units.configure(state="normal" if gas_checkbox.get() else "disabled"))
+            gas_checkbox.pack(side="left", padx=10)
+            gas_units.pack(side="left", padx=10)
+
+            lux_units = ctk.CTkComboBox(light_frame, values=["ALS", "UVS"], state="disabled")
+            lux_bits = ctk.CTkComboBox(light_frame, values=["16", "17", "18", "19", "20"], state="disabled")
+            light_checkbox = ctk.CTkCheckBox(light_frame, text="Enable Ambient/UV Light Measurement", command=config_light)
+            light_checkbox.pack(side="left", padx=10)
+            ctk.CTkLabel(light_frame, text="Lux Mode").pack(side="left", padx=10)
+            lux_units.pack(side="left", padx=10)
+            ctk.CTkLabel(light_frame, text="Lux Bits").pack(side="left", padx=10)
+            lux_bits.pack(side="left", padx=10)
+
+            board_fields["temp checkbox"] = {"widget": temp_checkbox, "validate": None}
+            board_fields["temp units"] = {"widget": temp_units, "validate": lambda val: not(val not in ["C", "F"] and temp_checkbox.get())}
+            board_fields["rh checkbox"] = {"widget": rh_checkbox, "validate": None}
+            board_fields["pressure checkbox"] = {"widget": pressure_checkbox, "validate": None}
+            board_fields["pressure units"] = {"widget": pressure_units, "validate": lambda val: not(val not in ["hPa", "mBar", "mmHg"] and pressure_checkbox.get())}
+            board_fields["gas checkbox"] = {"widget": gas_checkbox, "validate": None}
+            board_fields["gas units"] = {"widget": gas_units, "validate": lambda val: not(val not in ["KOhms", "TVoC Scale"] and gas_checkbox.get())}
+            board_fields["light checkbox"] = {"widget": light_checkbox, "validate": None}
+            board_fields["lux units"] = {"widget": lux_units, "validate": lambda val: not(val not in ["ALS", "UVS"] and light_checkbox.get())}
+            board_fields["lux bits"] = {"widget": lux_bits, "validate": lambda val: not(val not in ["16", "17", "18", "19", "20"] and light_checkbox.get())}
 
         # Main param frame
         param_frame = ctk.CTkFrame(self, fg_color="transparent")
