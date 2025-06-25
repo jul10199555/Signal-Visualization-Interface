@@ -1,5 +1,6 @@
 import sys
 import time
+from datetime import datetime
 import random # REMOVE IN FINAL PRODUCT
 from itertools import count #REMOVE IN FINAL PRODUCT
 
@@ -15,6 +16,7 @@ class DataHandler():
         self.interval = 1
         self.paused = True
         self.index = count() # REMOVE IN FINAL PRODUCT
+        self.channels = 0
 
     def run(self):
         '''
@@ -30,7 +32,7 @@ class DataHandler():
         '''
         x = next(self.index)
         y = random.randint(0, 100)
-        sys.stdout.write(f"{x},{y}\n")
+        sys.stdout.write(f"{next(self.index)},{datetime.now()},0.1,0.1,{random.randint(0,100)}\n")
 
     def _process_command(self):
         '''
@@ -40,13 +42,23 @@ class DataHandler():
         if command == None:
             pass
 
-        elif command.startswith("0"):
+        elif command == '0':
             sys.stdout.write("ACK\n")
 
-        elif command.startswith("START"):
-            self.paused = False
+        elif command == '1':
+            config_data = sys.stdin.readline()
+            config_data = config_data.split(',')
+            for segment in config_data:
+                if segment.startswith("CHAN"):
+                    self.channels = int(segment[4:])
 
-        elif command.startswith("REQUEST"):
+            channel_header = ""
+            if self.channels == 1:
+                channel_header = "Resistance (6001)"
+                    
+            sys.stdout.write(f"Scan,Time,5001 <LOAD> (VDC),5021 <DISP> (VDC),{channel_header}")
+
+        elif command == '2':
             if self.paused == False:
                 self._send_data()
 

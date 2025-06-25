@@ -42,7 +42,7 @@ class SerialInterface:
 
         self.ser.write((command + '\n').encode())
 
-    def read_lines(self, callback):
+    def read_lines(self, plot, config_payload):
         '''
         Spawns new thread to read from microcontroller and calls
         respective callback function.
@@ -53,8 +53,11 @@ class SerialInterface:
                 try:
                     line = self.ser.readline().decode().strip()
                     if line:
+                        if line.startswith("Scan"):
+                            config_payload(line)
                         # call the external function
-                        callback(line)
+                        else:
+                            plot(line)
 
                 except Exception as e:
                     print(f"Read error: {e}")

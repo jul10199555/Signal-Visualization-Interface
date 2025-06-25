@@ -543,6 +543,8 @@ class ControlPage(ctk.CTkFrame):
                         data += f",MX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
                     elif self.material == "Cx-Alpha":
                         data += f",CX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+
+                    data += f",CHAN{payload['channels']}"
                     print(data)
                 except Exception as e:
                     print(e)
@@ -933,22 +935,21 @@ class App(ctk.CTk):
         # Pages dict to manage different pages
         self.pages = {}
 
-
     def on_board_selected(self, board):
-        # Remove initial page
         self.initial_page.destroy()
+        self.control_page = ControlPage(self, self.serial_interface, board)
+        self.control_page.tkraise()
 
-        extra_keys = (
-            ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
-            + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
-        )
+    def on_config_sent(self, header, channels):
+        # Remove initial page
+        self.control_page.destroy()
 
         p = Payload(
             window_size=1000000,
             num_rows_detach=10,
             out_file_name="output/10k_test.csv",
-            keys=extra_keys,
-            channels=21
+            keys=header,
+            channels=channels
         )
 
         # Show Navbar
@@ -956,7 +957,6 @@ class App(ctk.CTk):
         self.navbar.grid(row=0, column=0, sticky="ew", pady=5)
 
         # Initialize pages
-        self.pages["Settings"] = ControlPage(self.page_container, self.serial_interface, board)
         self.pages["Waveform"] = WaveformApp(self.page_container, p)
         # self.pages["Heatmap"] = HeatmapPage(self.page_container)  # Replace with real class
         # self.pages["Calc."] = CalculationPage(self.page_container)  # Replace with real class
@@ -964,7 +964,7 @@ class App(ctk.CTk):
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
 
-        self.switch_frame("Settings")
+        self.switch_frame("Waveform")
 
     def switch_frame(self, selected):
         page = self.pages.get(selected)
