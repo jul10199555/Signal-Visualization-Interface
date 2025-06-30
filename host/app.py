@@ -46,6 +46,7 @@ class FirstExecutionMenu(ctk.CTkFrame):
         def request_connect():
             try:
                 # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
+                if self.board == '': return
                 serial_interface.connect(self.port)
                 on_board_selected(self.board)
             except Exception as e:

@@ -13,7 +13,7 @@ class ComPortMenu(ctk.CTkFrame):
             return port_info
         
         def update_com_ports():
-            port_dropdown.configure(values=get_com_ports())
+            self.port_dropdown.configure(values=get_com_ports())
 
         def select_port(entry):
             for port in list_ports.comports():
@@ -25,8 +25,8 @@ class ComPortMenu(ctk.CTkFrame):
         port_frame = ctk.CTkFrame(self, fg_color='transparent')
         port_frame.pack(pady=20)
 
-        port_dropdown = ctk.CTkComboBox(port_frame, values=ports, width=200, command=select_port)
-        port_dropdown.pack(side="left", padx=(0, 10))
+        self.port_dropdown = ctk.CTkComboBox(port_frame, values=ports, width=200, command=select_port)
+        self.port_dropdown.pack(side="left", padx=(0, 10))
 
         refresh_button = ctk.CTkButton(port_frame, text="Refresh", command=update_com_ports, width=60)
         refresh_button.pack(side="left")
