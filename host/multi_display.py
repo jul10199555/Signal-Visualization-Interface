@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import pandas
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+import time
 
 from payload import Payload
 
@@ -86,6 +88,8 @@ class WaveformApp(ctk.CTkFrame):
         body.grid_columnconfigure(0, weight=3)
         body.grid_columnconfigure(1, weight=1)
 
+        threading.Thread(target=self.auto_update, daemon=True).start()
+
     # placeholder
     def _noop(self, *_):
         pass
@@ -155,6 +159,12 @@ class WaveformApp(ctk.CTkFrame):
             self.ax.set_title("Active Resistance of the Channels")
 
         self.canvas.draw_idle()
+
+    def auto_update(self):
+        while True:
+            print('a')
+            self._update_graph()
+            time.sleep(1)
 
 
 # if __name__ == "__main__":

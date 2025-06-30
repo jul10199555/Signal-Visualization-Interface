@@ -11,7 +11,9 @@ import pandas as pd
 import time
 import threading
 from payload import Payload
+
 from multi_display import WaveformApp
+from settings import SettingsPage
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -23,9 +25,9 @@ RESOLUTION_DEFAULT = 60
 X_LIM_DEFAULT = (0, 100)
 Y_LIM_DEFAULT = (0, 100)
 
-# GUI Pages
-class FirstExecutionMenu(ctk.CTkFrame):
-    def __init__(self, master, serial_interface: SerialInterface, on_board_selected):
+class ComPortMenu(ctk.CTkFrame):
+    def __init__(self, master, setPortCallback):
+        super().__init__(master, fg_color='transparent')
         def get_com_ports():
             port_info = ["Select a Port"]
             for port in list_ports.comports():
@@ -38,40 +40,50 @@ class FirstExecutionMenu(ctk.CTkFrame):
         def select_port(entry):
             for port in list_ports.comports():
                 if port.device in entry:
-                    self.port = port.device
-
-        def select_board(entry):
-            if entry in ["MUX08", "MUX32"]:
-                self.board = entry
-            
-        def request_connect():
-            # try:
-            #     # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
-            #     # serial_interface.connect(self.port)
-            #     on_board_selected(self.board)
-            #     # show_main_menu()
-            # except Exception as e:
-            #     print(e)
-            #     return
-            on_board_selected(self.board)
-        
-        super().__init__(master)
-        self.grid(row=0, column=0, sticky="nsew")
+                    setPortCallback(port.device)
 
         ports = get_com_ports()
-        self.port = ""
-        self.board = ""
 
-        ctk.CTkLabel(self, text="Select a COM Port", font=("Helvetica", 16, "bold")).pack(pady=40)
-
-        port_frame = ctk.CTkFrame(self)
+        port_frame = ctk.CTkFrame(self, fg_color='transparent')
         port_frame.pack(pady=20)
 
         port_dropdown = ctk.CTkComboBox(port_frame, values=ports, width=200, command=select_port)
         port_dropdown.pack(side="left", padx=(0, 10))
 
-        refresh_button = ctk.CTkButton(port_frame, text="Refresh Ports", command=update_com_ports)
+        refresh_button = ctk.CTkButton(port_frame, text="Refresh", command=update_com_ports, width=60)
         refresh_button.pack(side="left")
+
+# GUI Pages
+class FirstExecutionMenu(ctk.CTkFrame):
+    def __init__(self, master, serial_interface: SerialInterface, on_board_selected):
+
+        def select_board(entry):
+            if entry in ["MUX08", "MUX32"]:
+                self.board = entry
+
+        def set_port(port):
+            self.port = port
+            
+        def request_connect():
+            try:
+                # UNCOMMENT WHEN BOARD IS ACTUALLY CONNECTED
+                serial_interface.connect(self.port)
+                on_board_selected(self.board)
+                # show_main_menu()
+            except Exception as e:
+                print(e)
+                return
+        
+        super().__init__(master)
+        self.grid(row=0, column=0, sticky="nsew")
+
+        self.port = ""
+        self.board = ""
+
+        ctk.CTkLabel(self, text="Select a COM Port", font=("Helvetica", 16, "bold")).pack(pady=40)
+
+        port_menu = ComPortMenu(self, set_port)
+        port_menu.pack(pady=20)
 
         board_dropdown = ctk.CTkComboBox(self, values=["Select a Board", "MUX32", "MUX08"], command=select_board)
         board_dropdown.pack(pady=20)
@@ -79,18 +91,22 @@ class FirstExecutionMenu(ctk.CTkFrame):
         ctk.CTkButton(self, text="Submit", command=request_connect).pack(pady=20)
 
 class ControlPage(ctk.CTkFrame):
-    def __init__(self, master, serial_interface: SerialInterface, board: str): # make sure to add MUX settings
+    def __init__(self, master, serial_interface: SerialInterface, board: str, on_config_selected): # make sure to add MUX settings
         super().__init__(master)
         # self.grid(row=0, column=0, sticky="nsew")
         machine_form_fields = {}
         material_form_fields = {}
         board_fields = {}
+        general_fields = {}
         payload = {}
         self.channels = 0
         self.error_flag = False
         self.board = board
         self.machine = ""
         self.material = ""
+        self.isFingerBend = False
+        self.pico_port = ""
+        self.pico_ser = None
 
         def pack_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -302,6 +318,7 @@ class ControlPage(ctk.CTkFrame):
                 widget.destroy()
 
             machine_form_fields.clear() # clear dict every time option is chosen
+            self.isFingerBend = False
 
             if option != machine_options[0]:
                 self.machine = option
@@ -334,6 +351,7 @@ class ControlPage(ctk.CTkFrame):
                 machine_form_fields["initial coordinates"] = initial_coord
                 machine_form_fields["final coordinates"] = final_coord
             elif option == "Angular Bending/Deformation Prototype": # Angular Bending
+                self.isFingerBend = True
                 speed_var = ctk.StringVar(value="off")
                 angle_var = ctk.StringVar(value="off")
                 def vary_speed():
@@ -394,6 +412,11 @@ class ControlPage(ctk.CTkFrame):
                         machine_form_fields['final angle'] = {'widget': final_angle, 'validate': iv.check_float}
                         machine_form_fields['angle step'] = {'widget': step, 'validate': iv.check_float}
 
+                def set_port(port):
+                    self.pico_port = port
+                ctk.CTkLabel(machine_settings_frame, text="Select Control MCU", font=("Helvetica", 16, 'bold')).pack(anchor='w')
+                com_menu = ComPortMenu(machine_settings_frame, set_port)
+                com_menu.pack(pady=5, anchor='w')
                 pack_test_settings(machine_settings_frame)
                 #pack_prototype(machine_settings_frame)
                 ctk.CTkCheckBox(machine_settings_frame, text="Variable Speed", variable=speed_var, onvalue="on", offvalue="off", command=vary_speed).pack(anchor="w", padx=20)
@@ -480,6 +503,9 @@ class ControlPage(ctk.CTkFrame):
             self.error_flag = 0
             data = ""
             payload.clear()
+            for key, meta in general_fields.items():
+                extract(key, meta)
+
             for key, meta in machine_form_fields.items():
                 extract(key, meta)
 
@@ -502,58 +528,65 @@ class ControlPage(ctk.CTkFrame):
 
                     data += ","
 
-                    if self.machine == "Shimadzu":
-                        data += f"SMDZ,{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}_{payload["displacement distance"]+payload["displacement distance units"]}"
-                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']},{payload['load force']+payload['load force units']}"
-
-                    elif self.machine == "MTS":
-                        data += f"MTS,{payload["repetitions"]}C"
+                    if self.machine == "Shimadzu" or self.machine == "MTS" or "Mini-Shimadzu":
+                        data += "SMDZ" if self.machine == "Shimadzu" else ""
+                        data += f"MTS,{payload['repetitions']}" if self.machine == "MTS" else ""
+                        data += f"MINI,{payload['repetitions']},{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+payload['hx711 load cell units']}"if self.machine == "Mini-Shimadzu" else ""
                         data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
                         data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
-
-                    elif self.machine == "Mini-Shimadzu":
-                        data += f"MINI,{payload["repetitions"]}C"
-                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
-                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
-                        data += f",{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+payload['hx711 load cell units']}"
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
                         data += f"BEND,{payload['repetitions']}C"
+                        pico_data = ""
                         if payload.get('motor speed'):
                             data += f",{payload['motor speed']}RPM"
+                            pico_data += f"{payload['motor speed']}RPM"
                         else:
                             data += f",VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
+                            pico_data+= f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
+
                         if payload.get('angle'):
                             data += f",{payload['angle']}DEG"
+                            pico_data += f",{payload['angle']}DEG"
                         else:
                             data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
+                            pico_data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
 
 
                     elif self.machine == "One-Axis Strain Prototype":
                         data += f"OAX,{payload['repetitions']}C"
                         data += f",{payload['strain']}N,{payload['motor displacement']}mm"
 
-                    if self.material == "CNT-GFW":
-                        data += f",CNT,{payload["test type"][-2]},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
-                    elif self.material == "GS-GFW":
-                        data += f",GS,{payload["test type"][-2]},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
-                    elif self.material == "MWCNT":
-                        data += f",MW,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
-                    elif self.material == "MXene":
-                        data += f",MX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
-                    elif self.material == "Cx-Alpha":
-                        data += f",CX,L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+                    if self.material == "CNT-GFW" or self.material == "GS-GFW":
+                        data += f",{"CNT" if self.material == "CNT-GFW" else "GS"},{payload["test type"][-2]},L{payload['length']},W{payload['width']},H{payload['height']},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
+
+                    elif self.material == "MWCNT" or self.material == "MXene" or self.material == "Cx-Alpha":
+                        data += ",MW" if self.material == "MWCNT" else ""
+                        data += ",MX" if self.material == "MXene" else ""
+                        data += ",CX" if self.material == "Cx-Alpha" else ""
+                        data += f",L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
 
                     data += f",CHAN{payload['channels']}"
                     print(data)
+                    # if finger bend is selected, connect to RP Pico
+                    if self.isFingerBend:
+                        self.pico_ser = SerialInterface()
+                        # attempt to connect to pico
+                        if self.pico_ser.connect(self.pico_port, 5):
+                            return # no con exito :(
+                        self.pico_ser.send_command(pico_data)
+                        
+                    serial_interface.send_command("1")
+                    if serial_interface.ser.readline().decode().strip() != 'ACK': return # mcu is ready to receive data
+                    serial_interface.send_command(data) # send config data to MCU
+                    raw = serial_interface.ser.readline().decode().strip() # MCU sends back header info to help structure payload
+                    on_config_selected(raw.split(','), int(payload['channels']), int(payload['sampling rate'])) # callback, destroys control page and takes user to main menu
                 except Exception as e:
                     print(e)
                     print("Error: Machine and Material Selections Incompatible!")
-            
-        
-        ctk.CTkLabel(self, text="Parameter Configuration", font=ctk.CTkFont(size=20)).pack(pady=20)
 
         if board == "MUX32":
+            # pack necessary paramters for MUX32 Configuration
             def config_light():
                 lux_units.configure(state="normal" if light_checkbox.get() else "disabled")
                 lux_bits.configure(state="normal" if light_checkbox.get() else "disabled")
@@ -591,6 +624,7 @@ class ControlPage(ctk.CTkFrame):
             ctk.CTkLabel(light_frame, text="Lux Bits").pack(side="left", padx=10)
             lux_bits.pack(side="left", padx=10)
 
+            # Log items in board fields dictionary to validate values
             board_fields["temp checkbox"] = {"widget": temp_checkbox, "validate": None}
             board_fields["temp units"] = {"widget": temp_units, "validate": lambda val: not(val not in ["C", "F"] and temp_checkbox.get())}
             board_fields["rh checkbox"] = {"widget": rh_checkbox, "validate": None}
@@ -618,6 +652,8 @@ class ControlPage(ctk.CTkFrame):
         machine_combo = ctk.CTkComboBox(machine_column, values=machine_options, command=machine_option_picker)
         machine_combo.pack(pady=(0, 5))
 
+        general_fields['machine options'] = {'widget': machine_options, 'validate': lambda val: val in ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]}
+
         machine_settings_frame = ctk.CTkFrame(machine_column, width=300, height=100, border_width=1, corner_radius=6)
         machine_settings_frame.pack()
 
@@ -628,6 +664,8 @@ class ControlPage(ctk.CTkFrame):
         material_options = ["Choose a Material", "CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]
         material_combo = ctk.CTkComboBox(material_column, values=material_options, command=material_option_picker)
         material_combo.pack(pady=(0, 5))
+
+        general_fields['material options'] = {'widget': material_options, 'validate': lambda val: val in ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]}
 
         material_settings_frame = ctk.CTkFrame(material_column, width=300, height=100, border_width=1, corner_radius=6)
         material_settings_frame.pack()
@@ -640,261 +678,10 @@ class ControlPage(ctk.CTkFrame):
         sampling_rate = ctk.CTkEntry(sampling_frame, placeholder_text="e.g., 1000")
         sampling_rate.pack(side="left")
 
-        machine_form_fields["sampling rate"] = {'widget': sampling_rate, 'validate': lambda val: val.isdigit()}
+        board_fields["sampling rate"] = {'widget': sampling_rate, 'validate': lambda val: val.isdigit()}
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
-
-class SingleChannelPage(ctk.CTkFrame):
-    def __init__(self, master, go_back, serial_interface: SerialInterface):
-        super().__init__(master)
-        self.grid(row=0, column=0, sticky="nsew")
-
-        self.serial_interface = serial_interface
-        self.running = False # If true, do not spawn a new thread to read values. If false, clear to spawn thread
-        self.paused = True
-        self.sampling_rate = 1
-
-        # Reusing your existing implementation under here
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        # Top control frame
-        control_frame = ctk.CTkFrame(self)
-        control_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 10))
-        control_frame.grid_columnconfigure(0, weight=1)
-        control_frame.grid_columnconfigure(1, weight=1)
-
-        # Device config frame
-        device_config_frame = ctk.CTkFrame(control_frame)
-        device_config_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        device_config_frame.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkLabel(device_config_frame, text="Device Angle:").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        self.angle_entry = ctk.CTkEntry(device_config_frame, placeholder_text="°")
-        self.angle_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
-        ctk.CTkLabel(device_config_frame, text="Device Cycles:").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-        self.cycles_entry = ctk.CTkEntry(device_config_frame, placeholder_text="#")
-        self.cycles_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-        ctk.CTkLabel(device_config_frame, text="Device Speed:").grid(row=2, column=0, padx=5, pady=5, sticky="ew")
-        self.speed_entry = ctk.CTkEntry(device_config_frame, placeholder_text="RPM")
-        self.speed_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-
-        self.enter_btn = ctk.CTkButton(device_config_frame, text="Configure Device", command=self.submit_values)
-        self.enter_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=10)
-
-        # Graph config frame
-        graph_config_frame = ctk.CTkFrame(control_frame)
-        graph_config_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-        graph_config_frame.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkLabel(graph_config_frame, text="X Limit:").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        self.xlim_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="(a,b)")
-        self.xlim_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
-        ctk.CTkLabel(graph_config_frame, text="Y Limit:").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-        self.ylim_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="(a,b)")
-        self.ylim_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-        ctk.CTkLabel(graph_config_frame, text="Data Rate:").grid(row=2, column=0, padx=5, pady=5, sticky="ew")
-        self.resolution_entry = ctk.CTkEntry(graph_config_frame, placeholder_text="Hz")
-        self.resolution_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-
-        self.resolution_btn = ctk.CTkButton(graph_config_frame, text="Configure Graph", command=self.submit_graph_data)
-        self.resolution_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=10)
-
-        # Monitor frame
-        monitor_frame = ctk.CTkFrame(self)
-        monitor_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=(10, 20))
-        monitor_frame.grid_rowconfigure(1, weight=1)
-        monitor_frame.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(monitor_frame, text="Live Serial Data", font=ctk.CTkFont(size=16)).grid(row=0, column=0, pady=(10, 5))
-
-        self.fig, self.ax = plt.subplots()
-        (self.line,) = self.ax.plot([], [], "b-", lw=2)
-
-        self.ax.set_xlim(0, 100)
-        self.ax.set_ylim(0, 100)
-        self.ax.set_xlabel("Time Elapsed (s)")
-        self.ax.set_ylabel("Resistance (Ω)")
-        self.ax.set_title("Resistance vs Time")
-
-
-        self.canvas = FigureCanvasTkAgg(self.fig, master=monitor_frame)
-        self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.grid(row=1, column=0, pady=10)
-        self.x_vals, self.y_vals = [], []
-
-        button_row_frame = ctk.CTkFrame(monitor_frame, fg_color="transparent")
-        button_row_frame.grid(row=2, column=0, pady=10)
-
-        self.start_btn = ctk.CTkButton(button_row_frame, text="Start/Resume", command=self.start_serial)
-        self.start_btn.grid(row=0, column=0, padx=10)
-
-        self.stop_btn = ctk.CTkButton(button_row_frame, text="Pause", command=self.pause)
-        self.stop_btn.grid(row=0, column=1, padx=10)
-
-        self.restart_btn = ctk.CTkButton(button_row_frame, text="Stop", command=self.stop)
-        self.restart_btn.grid(row=0, column=2, padx=10)
-
-        self.download_btn = ctk.CTkButton(button_row_frame, text="Download Data", command=self.download_data)
-        self.download_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
-
-        self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=1000, cache_frame_data=False)
-        
-
-    def submit_values(self):
-        '''
-        Sends angle, cycle, and pulse data to microcontroller.
-        '''
-        angle = self.angle_entry.get()
-        cycles = self.cycles_entry.get()
-        speed = self.speed_entry.get()
-
-        # Check if entries are valid. Empty entries are assigned default values
-        angle = iv.check_float(angle, ANGLE_DEFAULT)
-        cycles = iv.check_int(cycles, CYCLES_DEFAULT)
-        speed = iv.check_float(speed, PULSES_DEFAULT)
-
-        # highlight entry boxes red if entries are invalid. If not, assign default border color
-        if angle == None:
-            self.angle_entry.configure(border_color="red")
-            return
-        else:
-            self.angle_entry.configure(border_color="gray50")
-        if cycles == None:
-            self.cycles_entry.configure(border_color="red")
-            return
-        else:
-            self.cycles_entry.configure(border_color="gray50")
-        if speed == None:
-            self.speed_entry.configure(border_color="red")
-            return
-        else:
-            self.speed_entry.configure(border_color="gray50")
-
-        cmd = f"SET angle={angle} cycles={cycles} speed={speed}"
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command(cmd)
-
-
-    def submit_graph_data(self):
-        '''
-        Sends resolution data to microcontroller and reconfigures graph
-        '''
-        resolution = self.resolution_entry.get()
-        xlim = self.xlim_entry.get()
-        ylim = self.ylim_entry.get()
-
-        self.sampling_rate = int(resolution)
-        # Check if entries are valid. Empty entries are assigned default values
-        resolution = iv.check_int(resolution, RESOLUTION_DEFAULT)
-        xlim = iv.check_lim(xlim, X_LIM_DEFAULT)
-        ylim = iv.check_lim(ylim, Y_LIM_DEFAULT)
-
-        # highlight entry boxes red if entries are invalid. If not, assign default border color
-        if resolution == None:
-            self.resolution_entry.configure(border_color="red")
-            return
-        else:
-            self.resolution_entry.configure(border_color="gray50")
-        if xlim == None:
-            self.xlim_entry.configure(border_color="red")
-            return
-        else:
-            self.xlim_entry.configure(border_color="gray50")
-        if ylim == None:
-            self.ylim_entry.configure(border_color="red")
-            return
-        else:
-            self.ylim_entry.configure(border_color="gray50")
-
-        self.ax.set_xlim(xlim)
-        self.ax.set_ylim(ylim)
-
-        if self.ani:
-            self.ani.event_source.stop()
-        
-        new_interval = 1000/int(resolution)
-        self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=new_interval, cache_frame_data=False)
-        #self.slider.slidermax = self.x_vals[-1]
-        self.canvas.draw()
-
-    def download_data(self):
-        file_path = ctk.filedialog.asksaveasfilename(
-            title="Select a location",
-            filetypes=(("CSV Files", "*.csv"), ("All Files", "*.*")),
-            initialdir=os.path.expanduser("~")
-        )
-        
-        if file_path[-4:] != '.csv':
-            file_path += '.csv'
-        
-        data = {'strain': self.x_vals, 'pz_response': self.y_vals}
-        df = pd.DataFrame(data)
-
-        df.to_csv(file_path, index=False)
-
-    def pause(self):
-        '''
-        Pauses data acquisition
-        '''
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command("PAUSE")
-            self.paused = True
-
-
-    def stop(self):
-        '''
-        Stops the hardware device.
-        '''
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            self.serial_interface.send_command("EXIT")
-
-    def start_serial(self):
-        '''
-        Initializes the reading of real-time data from the micro-controller
-        '''
-        if self.serial_interface.ser and self.serial_interface.ser.is_open:
-            # so that thread isn't spawned again when user resumes graph
-            if self.running == False:
-                self.running = True
-                threading.Thread(target=self.serial_interface.read_lines, args=(self.get_vals,), daemon=True).start()
-            # thread exits when data acquisition paused. Can only be reopened if acquisition
-            # is resumed 
-            if self.paused:
-                print("Initializing data acquisition")
-                self.serial_interface.send_command("START")
-                self.paused = False
-                threading.Thread(target=self.request_data, daemon=True).start()
-
-    def request_data(self):
-        while self.paused == False:
-            self.serial_interface.send_command("REQUEST")
-            time.sleep(1 / self.sampling_rate)
-        print("Paused, thread exiting")
-
-    def get_vals(self, data: list):
-        '''
-        A callback function. Extracts x and y data values from received microcontroller data.
-        '''
-        try:
-            x, y = data.split(',')
-            self.x_vals.append(int(x))
-            self.y_vals.append(int(y))
-        except Exception as e:
-            print(f"Error parsing data: {e}")
-
-
-    def update_plot(self, _):
-        '''
-        Updates graphing data in the GUI.
-        '''
-        self.line.set_data(self.x_vals, self.y_vals)
-        return self.line,
 
 class Navbar(ctk.CTkFrame):
     def __init__(self, master, switch_frame):
@@ -937,10 +724,11 @@ class App(ctk.CTk):
 
     def on_board_selected(self, board):
         self.initial_page.destroy()
-        self.control_page = ControlPage(self, self.serial_interface, board)
-        self.control_page.tkraise()
+        self.control_page = ControlPage(self.page_container, self.serial_interface, board, self.on_config_sent)
+        self.control_page.grid(row=0, column=0, sticky='nsew')
+        self.show_control_page()
 
-    def on_config_sent(self, header, channels):
+    def on_config_sent(self, header, channels, sampling_rate):
         # Remove initial page
         self.control_page.destroy()
 
@@ -957,27 +745,23 @@ class App(ctk.CTk):
         self.navbar.grid(row=0, column=0, sticky="ew", pady=5)
 
         # Initialize pages
-        self.pages["Waveform"] = WaveformApp(self.page_container, p)
+        self.pages["Settings"] = SettingsPage(self.page_container, self.serial_interface, p.push, sampling_rate/1000)
+        self.pages["Waveform"] = WaveformApp(self.page_container, p, 1000/sampling_rate)
         # self.pages["Heatmap"] = HeatmapPage(self.page_container)  # Replace with real class
         # self.pages["Calc."] = CalculationPage(self.page_container)  # Replace with real class
 
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
 
-        self.switch_frame("Waveform")
+        self.switch_frame("Settings")
 
     def switch_frame(self, selected):
         page = self.pages.get(selected)
         if page:
             page.tkraise()
 
-
     def show_execution_page(self):
         self.initial_page.tkraise()
-
-    def show_single_channel(self):
-        threading.Thread(target=self.auto_connect_serial, daemon=True).start()
-        self.single_page.tkraise()
 
     def show_control_page(self):
         self.control_page.tkraise()
@@ -993,18 +777,3 @@ class App(ctk.CTk):
         self.clear_window()
         self.serial_interface.disconnect()
         exit()
-
-    def auto_connect_serial(self):
-        '''
-        Waits for COM4 to be available, then connects and starts reading.
-        '''
-        while True:
-            try:
-                self.serial_interface.connect()
-                if self.serial_interface.ser and self.serial_interface.ser.is_open:
-                    print("Connected to COM4.")
-                    break
-            except:
-                print("Waiting for COM4...")
-            time.sleep(1)  # Wait before retrying
-

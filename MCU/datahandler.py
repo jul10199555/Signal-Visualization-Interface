@@ -1,6 +1,4 @@
 import sys
-import time
-from datetime import datetime
 import random # REMOVE IN FINAL PRODUCT
 from itertools import count #REMOVE IN FINAL PRODUCT
 
@@ -30,15 +28,13 @@ class DataHandler():
         '''
         Sends x and y data values to the host
         '''
-        x = next(self.index)
-        y = random.randint(0, 100)
-        sys.stdout.write(f"{next(self.index)},{datetime.now()},0.1,0.1,{random.randint(0,100)}\n")
+        sys.stdout.write(f"0.1,0.1,{random.randint(0,100)}\n")
 
     def _process_command(self):
         '''
         Processes incoming commands from host
         '''
-        command = sys.stdin.readline()
+        command = sys.stdin.readline().strip()
         if command == None:
             pass
 
@@ -46,6 +42,7 @@ class DataHandler():
             sys.stdout.write("ACK\n")
 
         elif command == '1':
+            sys.stdout.write("ACK\n") # can put stuff before this, e.g. wait for calibration
             config_data = sys.stdin.readline()
             config_data = config_data.split(',')
             for segment in config_data:
@@ -56,11 +53,10 @@ class DataHandler():
             if self.channels == 1:
                 channel_header = "Resistance (6001)"
                     
-            sys.stdout.write(f"Scan,Time,5001 <LOAD> (VDC),5021 <DISP> (VDC),{channel_header}")
+            sys.stdout.write(f"5001 <LOAD> (VDC),5021 <DISP> (VDC),{channel_header}")
 
         elif command == '2':
-            if self.paused == False:
-                self._send_data()
+            self._send_data()
 
         elif command.startswith("SET"):
             parts = command.split()[1:]
