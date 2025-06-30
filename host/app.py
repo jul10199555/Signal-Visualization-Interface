@@ -25,7 +25,7 @@ class Navbar(ctk.CTkFrame):
         self.nav = ctk.CTkSegmentedButton(
             self,
             width=400,
-            values=["Settings", "Waveform", "Heatmap", "Calc."],
+            values=["Settings", "Waveform", "∆R/Ro", "Heatmap", "Calc."],
             corner_radius=12,
             command=self.switch_frame  # TODO: IMPLEMENT COMMAND FOR HEADER NAVIGATION
         )
@@ -117,7 +117,8 @@ class App(ctk.CTk):
 
         # Initialize pages
         self.pages["Settings"] = SettingsPage(self.page_container, self.serial_interface, p.push, sampling_rate/1000)
-        self.pages["Waveform"] = WaveformApp(self.page_container, p, 1000/sampling_rate)
+        self.pages["Waveform"] = WaveformApp(self.page_container, p, False, 1000/sampling_rate)
+        self.pages["∆R/Ro"] = WaveformApp(self.page_container, p, True, 1000/sampling_rate)
         # self.pages["Heatmap"] = HeatmapPage(self.page_container)  # Replace with real class
         # self.pages["Calc."] = CalculationPage(self.page_container)  # Replace with real class
 

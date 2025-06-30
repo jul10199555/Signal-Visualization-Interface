@@ -19,10 +19,11 @@ ctk.set_default_color_theme("blue")
 class WaveformApp(ctk.CTkFrame):
 
     # SAMPLING FREQ IN HZ
-    def __init__(self, master, payload: Payload, sampling_freq: int = 10):
+    def __init__(self, master, payload: Payload, is_relative, sampling_freq: int = 10):
         # THE POSITION FOR THE RESISTIVE CHANNELS WILL BE [LENGTH - # CHANNELS : ]
         super().__init__(master)
         self.sampling_freq = sampling_freq
+        self.is_relative = is_relative
 
         self.payload = payload
 
@@ -142,11 +143,10 @@ class WaveformApp(ctk.CTkFrame):
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
             
-            Ro = 50
+            Ro = 5
             delta_df = long_df.copy()
             delta_df['DeltaR_Ro'] = (delta_df['Value'] - Ro) / Ro
-            if self.is_deriv.get() == "off":
-                print("off")
+            if not self.is_relative:
                 sns.lineplot(
                     data=long_df,
                     x="Time",
@@ -159,7 +159,6 @@ class WaveformApp(ctk.CTkFrame):
                 self.ax.set_ylabel("Resistance (Ohms)")
 
             else:
-                print("on")
                 sns.lineplot(
                     data=delta_df,
                     x="Time",
