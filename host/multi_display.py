@@ -44,7 +44,7 @@ class WaveformApp(ctk.CTkFrame):
 
         # MAIN
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 3))
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=1)
 
@@ -56,6 +56,9 @@ class WaveformApp(ctk.CTkFrame):
         )
         self.win_sel.set(self.window_size_label)
         self.win_sel.grid(row=0, column=0, sticky="w", pady=(0, 6))
+
+        self.is_deriv = ctk.StringVar(value="off")
+        ctk.CTkCheckBox(body, text="View ∆R/R0%", variable=self.is_deriv, onvalue="on", offvalue="off").grid(row=0,column=1,pady=5)
 
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
@@ -138,17 +141,19 @@ class WaveformApp(ctk.CTkFrame):
             long_df["Time"] = pandas.to_datetime(long_df["Time"],
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
-
-            sns.scatterplot(
-                data=long_df,
-                x="Time",
-                y="Value",
-                hue="Channel",
-                palette=sns.color_palette("husl", len(selected_channels)),
-                s=20,
-                ax=self.ax,
-                legend=True
-            )
+            if self.is_deriv == "off":
+                sns.scatterplot(
+                    data=long_df,
+                    x="Time",
+                    y="Value",
+                    hue="Channel",
+                    palette=sns.color_palette("husl", len(selected_channels)),
+                    s=20,
+                    ax=self.ax,
+                    legend=True
+                )
+            else:
+                pass
 
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
