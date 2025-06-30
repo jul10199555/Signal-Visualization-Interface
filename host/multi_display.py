@@ -58,11 +58,11 @@ class WaveformApp(ctk.CTkFrame):
         self.win_sel.grid(row=0, column=0, sticky="w", pady=(0, 6))
 
         self.is_deriv = ctk.StringVar(value="off")
-        ctk.CTkCheckBox(body, text="View ∆R/R0%", variable=self.is_deriv, onvalue="on", offvalue="off").grid(row=0,column=1,pady=5)
 
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
         self.fig.set_tight_layout(True)
+        ctk.CTkCheckBox(body, text="View ∆R/Ro", variable=self.is_deriv, onvalue="on", offvalue="off", command=lambda: self.ax.cla()).grid(row=0,column=1,pady=5)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -141,33 +141,47 @@ class WaveformApp(ctk.CTkFrame):
             long_df["Time"] = pandas.to_datetime(long_df["Time"],
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
-            if self.is_deriv == "off":
-                sns.scatterplot(
+            
+            Ro = 50
+            delta_df = long_df.copy()
+            delta_df['DeltaR_Ro'] = (delta_df['Value'] - Ro) / Ro
+            if self.is_deriv.get() == "off":
+                print("off")
+                sns.lineplot(
                     data=long_df,
                     x="Time",
                     y="Value",
                     hue="Channel",
                     palette=sns.color_palette("husl", len(selected_channels)),
-                    s=20,
                     ax=self.ax,
                     legend=True
                 )
+                self.ax.set_ylabel("Resistance (Ohms)")
+
             else:
-                pass
+                print("on")
+                sns.lineplot(
+                    data=delta_df,
+                    x="Time",
+                    y="DeltaR_Ro",
+                    hue="Channel",
+                    palette=sns.color_palette("husl", len(selected_channels)),
+                    ax=self.ax,
+                    legend=True
+                )
+                self.ax.set_ylabel("∆R/Ro")
 
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             self.fig.autofmt_xdate()
 
             self.ax.set_xlabel("Time")
-            self.ax.set_ylabel("Resistance")
             self.ax.set_title("Active Resistance of the Channels")
 
         self.canvas.draw_idle()
 
     def auto_update(self):
         while True:
-            print('a')
             self._update_graph()
             time.sleep(1)
 
