@@ -593,7 +593,7 @@ class ControlPage(ctk.CTkFrame):
         machine_combo = ctk.CTkComboBox(machine_column, values=machine_options, command=machine_option_picker)
         machine_combo.pack(pady=(0, 5))
 
-        general_fields['machine options'] = {'widget': machine_options, 'validate': lambda val: val in ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]}
+        general_fields['machine options'] = {'widget': machine_combo, 'validate': lambda val: val in ["Shimadzu", "MTS", "Mini-Shimadzu", "Festo", "Angular Bending/Deformation Prototype", "One-Axis Strain Prototype"]}
 
         machine_settings_frame = ctk.CTkFrame(machine_column, width=300, height=100, border_width=1, corner_radius=6)
         machine_settings_frame.pack()
@@ -606,7 +606,7 @@ class ControlPage(ctk.CTkFrame):
         material_combo = ctk.CTkComboBox(material_column, values=material_options, command=material_option_picker)
         material_combo.pack(pady=(0, 5))
 
-        general_fields['material options'] = {'widget': material_options, 'validate': lambda val: val in ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]}
+        general_fields['material options'] = {'widget': material_combo, 'validate': lambda val: val in ["CNT-GFW", "GS-GFW", "MWCNT", "MXene", "Cx-Alpha"]}
 
         material_settings_frame = ctk.CTkFrame(material_column, width=300, height=100, border_width=1, corner_radius=6)
         material_settings_frame.pack()
@@ -619,7 +619,7 @@ class ControlPage(ctk.CTkFrame):
         sampling_rate = ctk.CTkEntry(sampling_frame, placeholder_text="e.g., 1000")
         sampling_rate.pack(side="left")
 
-        board_fields["sampling rate"] = {'widget': sampling_rate, 'validate': lambda val: val.isdigit()}
+        general_fields["sampling rate"] = {'widget': sampling_rate, 'validate': lambda val: val.isdigit()}
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
