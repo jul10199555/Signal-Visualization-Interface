@@ -471,10 +471,10 @@ class ControlPage(ctk.CTkFrame):
 
                     if self.machine == "Shimadzu" or self.machine == "MTS" or "Mini-Shimadzu":
                         data += "SMDZ" if self.machine == "Shimadzu" else ""
-                        data += f"MTS,{payload['repetitions']}" if self.machine == "MTS" else ""
-                        data += f"MINI,{payload['repetitions']},{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+payload['hx711 load cell units']}"if self.machine == "Mini-Shimadzu" else ""
-                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+payload["displacement distance units"]}"
-                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}N_{payload['load voltage']}V,{payload['load force']+payload['load force units']}"
+                        data += f"MTS,{payload['repetitions']}C" if self.machine == "MTS" else ""
+                        data += f"MINI,{payload['repetitions']}C,{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+'_'+payload['hx711 load cell units']}"if self.machine == "Mini-Shimadzu" else ""
+                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+'_'+payload["displacement distance units"]}"
+                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}_{payload['load voltage']}V,{payload['load force']+'_'+payload['load force units']}"
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
                         data += f"BEND,{payload['repetitions']}C"
@@ -505,7 +505,7 @@ class ControlPage(ctk.CTkFrame):
                         data += ",MW" if self.material == "MWCNT" else ""
                         data += ",MX" if self.material == "MXene" else ""
                         data += ",CX" if self.material == "Cx-Alpha" else ""
-                        data += f",L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']},C{payload['column']},S{payload['sensor number']}"
+                        data += f",L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']}_C{payload['column']},S{payload['sensor number']}"
 
                     data += f",CHAN{payload['channels']}"
                     print(data)

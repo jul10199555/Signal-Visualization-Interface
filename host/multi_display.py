@@ -206,19 +206,3 @@ class WaveformApp(ctk.CTkFrame):
             self._update_graph()
             time.sleep(1)
 
-
-# if __name__ == "__main__":
-#     extra_keys = (
-#             ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
-#             + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
-#     )
-
-#     p = Payload(
-#         window_size=1000000,
-#         num_rows_detach=10,
-#         out_file_name="output/10k_test.csv",
-#         keys=extra_keys,
-#         channels=21
-#     )
-
-#     WaveformApp(p).mainloop()
