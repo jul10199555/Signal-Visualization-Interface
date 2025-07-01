@@ -27,6 +27,8 @@ class WaveformApp(ctk.CTkFrame):
 
         self.payload = payload
 
+        self.ro = None
+
         # CHECK WHAT TIME STAMPS ARE SUPPORTED WITH THE PAYLOAD's WINDOW SIZE & THE SAMPLING FREQ
         base_time_period = {"1ms": 0.001, "5ms": 0.005, "30ms": 0.03, "100ms": 0.1, "500ms": 0.5, "1s": 1, "10s": 10,
                             "30s": 30, "1m": 60, "5m": 300, "10m": 600, "30m": 1800, "1hr": 3600}
@@ -63,7 +65,25 @@ class WaveformApp(ctk.CTkFrame):
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
         self.fig.set_tight_layout(True)
-        ctk.CTkCheckBox(body, text="View ∆R/Ro", variable=self.is_deriv, onvalue="on", offvalue="off", command=lambda: self.ax.cla()).grid(row=0,column=1,pady=5)
+        
+        def check_and_enter_ro():
+            if ro_entry.get() and ro_entry.get().isdigit() and ro_entry.get() != '0':
+                self.ro = int(ro_entry.get())
+                ro_entry.configure(border_color='gray50')
+            else:
+                ro_entry.configure(border_color='red')
+
+        if self.is_relative:        
+            ro_frame = ctk.CTkFrame(body, fg_color='transparent')
+            ro_frame.grid(row=0,column=1,pady=5)
+
+            ctk.CTkLabel(ro_frame, text="Enter Base Resistance:").grid(row=0, column=0, padx=5)
+
+            ro_entry = ctk.CTkEntry(ro_frame)
+            ro_entry.grid(row=0, column=1, padx=5)
+
+
+            ctk.CTkButton(ro_frame, text="SET", command=check_and_enter_ro).grid(row=0, column=2, padx=5)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -129,6 +149,9 @@ class WaveformApp(ctk.CTkFrame):
         if not selected_channels:
             self.ax.text(0.5, 0.5, "SELECT AT LEAST ONE CHANNEL",
                          ha="center", va="center", transform=self.ax.transAxes)
+        elif (self.is_relative and self.ro == None):
+            self.ax.text(0.5, 0.5, "ENTER A BASE RESISTANCE",
+                         ha="center", va="center", transform=self.ax.transAxes)
         else:
             df = (self.payload.to_dataframe().set_index("Time")[selected_channels])
 
@@ -143,9 +166,6 @@ class WaveformApp(ctk.CTkFrame):
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
             
-            Ro = 5
-            delta_df = long_df.copy()
-            delta_df['DeltaR_Ro'] = (delta_df['Value'] - Ro) / Ro
             if not self.is_relative:
                 sns.lineplot(
                     data=long_df,
@@ -159,6 +179,8 @@ class WaveformApp(ctk.CTkFrame):
                 self.ax.set_ylabel("Resistance (Ohms)")
 
             else:
+                delta_df = long_df.copy()
+                delta_df['DeltaR_Ro'] = (delta_df['Value'] - self.ro) / self.ro
                 sns.lineplot(
                     data=delta_df,
                     x="Time",
