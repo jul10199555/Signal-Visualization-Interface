@@ -27,9 +27,6 @@ class HeatmapApp(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=(0,6))
         self.canvas = canvas
 
-        # Initial plot
-        self.draw_heatmap()
-
     def draw_heatmap(self):
         """Compute heatmap and plot it on a fresh axis."""
         # Clear entire figure to remove old colorbars/axes
