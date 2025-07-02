@@ -65,7 +65,7 @@ class WaveformApp(ctk.CTkFrame):
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
         self.fig.set_tight_layout(True)
-        
+
         def check_and_enter_ro():
             if ro_entry.get() and ro_entry.get().isdigit() and ro_entry.get() != '0':
                 self.ro = int(ro_entry.get())
@@ -73,15 +73,14 @@ class WaveformApp(ctk.CTkFrame):
             else:
                 ro_entry.configure(border_color='red')
 
-        if self.is_relative:        
+        if self.is_relative:
             ro_frame = ctk.CTkFrame(body, fg_color='transparent')
-            ro_frame.grid(row=0,column=1,pady=5)
+            ro_frame.grid(row=0, column=1, pady=5)
 
             ctk.CTkLabel(ro_frame, text="Enter Base Resistance:").grid(row=0, column=0, padx=5)
 
             ro_entry = ctk.CTkEntry(ro_frame)
             ro_entry.grid(row=0, column=1, padx=5)
-
 
             ctk.CTkButton(ro_frame, text="SET", command=check_and_enter_ro).grid(row=0, column=2, padx=5)
 
@@ -140,6 +139,9 @@ class WaveformApp(ctk.CTkFrame):
 
         self._update_graph()
 
+    def get_ro(self):
+        return self.ro
+
     def _update_graph(self):
         selected_channels = [
             name for name, cb in self.channel_box_select.items() if cb.get()
@@ -165,7 +167,7 @@ class WaveformApp(ctk.CTkFrame):
             long_df["Time"] = pandas.to_datetime(long_df["Time"],
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
-            
+
             if not self.is_relative:
                 sns.lineplot(
                     data=long_df,
@@ -205,4 +207,3 @@ class WaveformApp(ctk.CTkFrame):
         while True:
             self._update_graph()
             time.sleep(1)
-

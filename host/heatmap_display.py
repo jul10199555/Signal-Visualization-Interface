@@ -14,9 +14,11 @@ ctk.set_default_color_theme("blue")
 
 
 class HeatmapApp(ctk.CTkFrame):
-    def __init__(self, master, payload: Payload):
+    # THE ro - BASE RESISTANCE, DETERMINES WHETHER IT'S DISPLAYING THE DERIVATIVE OR THE RESISTANCE
+    def __init__(self, master, payload: Payload, ro=None):
         super().__init__(master)
         self.payload = payload
+        self.ro = ro
 
         # Matplotlib figure and axis setup
         self.fig, self.ax = plt.subplots(figsize=(10, 2.5), dpi=100)
@@ -36,7 +38,7 @@ class HeatmapApp(ctk.CTkFrame):
         self.fig.tight_layout()
 
         # Compute matrix
-        hm = Heatmap(self.payload)
+        hm = Heatmap(self.payload, self.ro)
         mat = hm.calc_pts_diagonal(s5x41_switcher)
 
         # Plot heatmap
@@ -55,7 +57,6 @@ class HeatmapApp(ctk.CTkFrame):
 
     def set_payload(self, payload: Payload):
         self.payload = payload
-        self.draw_heatmap()
 
     def _decorate_axes(self, mat):
         """Internal helper to add ticks, labels, and secondary axes."""

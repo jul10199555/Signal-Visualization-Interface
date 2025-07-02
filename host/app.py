@@ -1,4 +1,6 @@
 import customtkinter as ctk
+
+from host.heatmap_display import HeatmapApp
 from serial_interface import SerialInterface
 import serial.tools.list_ports as list_ports
 
@@ -106,8 +108,8 @@ class App(ctk.CTk):
 
         p = Payload(
             window_size=1000000,
-            num_rows_detach=10,
-            out_file_name="output/10k_test.csv",
+            num_rows_detach=1000,
+            out_file_name="output/1k_out.csv",
             keys=header,
             channels=channels
         )
@@ -119,8 +121,9 @@ class App(ctk.CTk):
         # Initialize pages
         self.pages["Settings"] = SettingsPage(self.page_container, self.serial_interface, p.push, sampling_rate/1000)
         self.pages["Waveform"] = WaveformApp(self.page_container, p, False, 1000/sampling_rate)
-        self.pages["∆R/Ro"] = WaveformApp(self.page_container, p, True, 1000/sampling_rate)
-        # self.pages["Heatmap"] = HeatmapPage(self.page_container)  # Replace with real class
+        r_div = WaveformApp(self.page_container, p, True, 1000/sampling_rate)
+        self.pages["∆R/Ro"] = r_div
+        self.pages["Heatmap"] = HeatmapApp(self.page_container, p, r_div.get_ro())  # Replace with real class
         # self.pages["Calc."] = CalculationPage(self.page_container)  # Replace with real class
 
         for page in self.pages.values():

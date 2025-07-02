@@ -54,8 +54,9 @@ s5x41_switcher: Dict[str, Tuple[int, int]] = {
 class Heatmap:
 
     # ONLY NEED THE MOST RECENT VALUES FROM THE PAYLOAD -> payload.get_most_recent_data()
-    def __init__(self, payload: Payload):
+    def __init__(self, payload: Payload, ro=None):
         self.payload_entree = payload.get_most_recent_data()
+        self.ro = ro
 
     # Calculating the points for the heatmap from the diagonal resistance values for like the 5x41 materials
     # -> CAN HAVE DIFFERENT HORIZONTAL WIDTH BUT SAME OVERALL STRUCTURE OF THE 5x41 and SAME HEIGHT/DEPTH OF 5
@@ -91,8 +92,8 @@ class Heatmap:
                 for i in range(max_height + 1):
                     key_a = (norm_num, prim_num)
                     key_b = (norm_num + i, prim_num - 4 + i)
-                    print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
-                    f" @ [{i},{(norm_num + i) + norm_num - 1}]")
+                    # print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
+                    # f" @ [{i},{(norm_num + i) + norm_num - 1}]")
 
                     if key_a in mapped_pts and key_b in mapped_pts:
                         output_matrix[i][(norm_num + i) + norm_num] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
@@ -109,8 +110,8 @@ class Heatmap:
                         key_a = (norm_num, prim_num)
                         key_b = (norm_num + i, prim_num - 4 + i)
 
-                        print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
-                              f" @ [{i},{(norm_num + i) + norm_num - 1}]")
+                        # print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
+                        #       f" @ [{i},{(norm_num + i) + norm_num - 1}]")
 
                         output_matrix[i][(norm_num + i) + norm_num] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
@@ -124,8 +125,8 @@ class Heatmap:
                         key_a = (norm_num, prim_num)
                         key_b = (norm_num + i, prim_num - 4 + i)
 
-                        print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
-                              f" @ [{i},{(norm_num + i) + norm_num - 1}]")
+                        # print(f"FOR key_a={key_a}, key_b={key_b} @ [{i},{(norm_num + i) + norm_num}] &"
+                        #       f" @ [{i},{(norm_num + i) + norm_num - 1}]")
 
                         output_matrix[i][(norm_num + i) + norm_num] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
@@ -134,28 +135,24 @@ class Heatmap:
         # 2-4'
         k = 2
         key_a = (k, k + (max_height//2))
-        print(f"FOR key_a={key_a}")
 
         output_matrix[0][k*2] = mapped_pts[key_a]
 
         # 20-18'
         k = max_width - 1
         key_a = (k, k - (max_height//2))
-        print(f"FOR key_a={key_a}")
 
         output_matrix[0][k*2] = mapped_pts[key_a]
 
         # 2-4'
         k = 2
         key_a = (k, k + (max_height//2))
-        print(f"FOR key_a={key_a}")
 
         output_matrix[max_height][k*2] = mapped_pts[key_a]
 
         # 18-20'
         k = max_width - 1
         key_a = (k - (max_height//2), k)
-        print(f"FOR key_a={key_a}")
 
         output_matrix[max_height][k*2] = mapped_pts[key_a]
 
@@ -163,7 +160,6 @@ class Heatmap:
         k = 1
         key_a = (1, 1)
         key_b = (1, 1 + (max_height//2))
-        print(f"FOR key_a={key_a}")
 
         output_matrix[0][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
 
@@ -171,7 +167,6 @@ class Heatmap:
         k = 1
         key_a = (1, 1)
         key_b = (1, 3)
-        print(f"FOR key_a={key_a}")
 
         output_matrix[max_height][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
 
@@ -181,7 +176,6 @@ class Heatmap:
             k = max_width
             key_a = (k, k - (max_height//2))
             key_b = (k, k)
-            print(f"FOR key_a={key_a}")
 
             output_matrix[0][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
 
@@ -189,7 +183,6 @@ class Heatmap:
             k = max_width
             key_a = (k - (max_height//2), k)
             key_b = (k, k)
-            print(f"FOR key_a={key_a}")
 
             output_matrix[max_height][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
 
@@ -228,7 +221,12 @@ class Heatmap:
             convert_key: Tuple[int, int] = switcher.get(key, None)
 
             if convert_key is not None:
-                map_result[convert_key] = self.payload_entree[key]
+
+                # CHECK NEED TO DO THE BASE RESISTANCE CALC. FOR DERV.
+                if self.ro is None:
+                    map_result[convert_key] = self.payload_entree[key]
+                else:
+                    map_result[convert_key] = (self.payload_entree[key] - self.ro)/self.ro
         return map_result
 
     # UPDATE THE HEATMAP'S PAYLOAD ENTRE that's being used
