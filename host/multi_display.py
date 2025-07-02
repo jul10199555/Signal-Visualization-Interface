@@ -8,7 +8,7 @@ import pandas
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from payload import Payload
+from host.payload import Payload
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")

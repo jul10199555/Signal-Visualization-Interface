@@ -25,7 +25,7 @@ class Payload:
         if (keys is not None) and (channels is not None):
             self.channels = channels
             self.keys = ["Scan", "Time"] + keys
-        else:
+        else:  # DEFAULT LAYOUT
             self.channels = 21
             self.keys = ["Scan", "Time", "temp", "rel_humid", "atm_pres", "tvoc", "lux", "dig0", "dig1", "dig2",
                          "dig3", "sh_disp", "sh_load", "sig_max", "HX711_force"]
@@ -37,9 +37,8 @@ class Payload:
                                f"num_rows_detach={num_rows_detach} ")
 
         self.curr_seq = 0
-
         self.data: Dict[str, Deque[Any]] = {}
-        self.window_size = window_size + 1
+        self.window_size = window_size
         self.num_rows_detach = num_rows_detach
         self.out_file_name = out_file_name
 
@@ -89,15 +88,19 @@ class Payload:
 
     # Convert the data to a pandas' dataframe
     def to_dataframe(self, only_channels: bool = False) -> pandas.DataFrame:
-        item_loc = self.channels if only_channels else 0
-
         df = pandas.DataFrame({k: list(v) for k, v in self.data.items()})
+        if only_channels:
+            df = df[self.get_channels()]
+
         df["Time"] = pandas.to_datetime(df["Time"], utc=True).dt.strftime("%d/%m/%Y %H:%M:%S:%f").str[:-3]
         df = df.astype({"Scan": "int64"})
         return df
 
     def get_channels(self) -> list[str]:
         return self.keys[-self.channels:]
+
+    def get_most_recent_data(self) -> Dict[str, Any]:
+        return {k: dq[-1] for k, dq in self.data.items()}
 
     # detach num_rows (oldest) rows  from the data and push it to the csv file
     # todo: add a limit for the csv files where it will push to another csv file when the file size is too large

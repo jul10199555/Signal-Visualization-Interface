@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
     extra_keys = (
             ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
-            + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6040
+            + [f"{6001 + i} (OHM)" for i in range(39)]  # 6001 … 6040
     )
 
     p = Payload(
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     print(p.get_channels())
 
-    WaveformApp(p, 10).mainloop()
+    WaveformApp( p, 10).mainloop()
 
     # import seaborn as sns
     # import matplotlib.pyplot as plt
