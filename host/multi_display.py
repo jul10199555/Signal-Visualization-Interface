@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import pandas
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+import time
 
 from host.payload import Payload
 
@@ -17,12 +19,15 @@ ctk.set_default_color_theme("blue")
 class WaveformApp(ctk.CTkFrame):
 
     # SAMPLING FREQ IN HZ
-    def __init__(self, master, payload: Payload, sampling_freq: int = 10):
+    def __init__(self, master, payload: Payload, is_relative, sampling_freq: int = 10):
         # THE POSITION FOR THE RESISTIVE CHANNELS WILL BE [LENGTH - # CHANNELS : ]
         super().__init__(master)
         self.sampling_freq = sampling_freq
+        self.is_relative = is_relative
 
         self.payload = payload
+
+        self.ro = None
 
         # CHECK WHAT TIME STAMPS ARE SUPPORTED WITH THE PAYLOAD's WINDOW SIZE & THE SAMPLING FREQ
         base_time_period = {"1ms": 0.001, "5ms": 0.005, "30ms": 0.03, "100ms": 0.1, "500ms": 0.5, "1s": 1, "10s": 10,
@@ -42,7 +47,7 @@ class WaveformApp(ctk.CTkFrame):
 
         # MAIN
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 3))
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=1)
 
@@ -55,9 +60,30 @@ class WaveformApp(ctk.CTkFrame):
         self.win_sel.set(self.window_size_label)
         self.win_sel.grid(row=0, column=0, sticky="w", pady=(0, 6))
 
+        self.is_deriv = ctk.StringVar(value="off")
+
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
         self.fig.set_tight_layout(True)
+        
+        def check_and_enter_ro():
+            if ro_entry.get() and ro_entry.get().isdigit() and ro_entry.get() != '0':
+                self.ro = int(ro_entry.get())
+                ro_entry.configure(border_color='gray50')
+            else:
+                ro_entry.configure(border_color='red')
+
+        if self.is_relative:        
+            ro_frame = ctk.CTkFrame(body, fg_color='transparent')
+            ro_frame.grid(row=0,column=1,pady=5)
+
+            ctk.CTkLabel(ro_frame, text="Enter Base Resistance:").grid(row=0, column=0, padx=5)
+
+            ro_entry = ctk.CTkEntry(ro_frame)
+            ro_entry.grid(row=0, column=1, padx=5)
+
+
+            ctk.CTkButton(ro_frame, text="SET", command=check_and_enter_ro).grid(row=0, column=2, padx=5)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -85,6 +111,8 @@ class WaveformApp(ctk.CTkFrame):
         body.grid_rowconfigure(0, weight=1)
         body.grid_columnconfigure(0, weight=3)
         body.grid_columnconfigure(1, weight=1)
+
+        threading.Thread(target=self.auto_update, daemon=True).start()
 
     # placeholder
     def _noop(self, *_):
@@ -121,6 +149,9 @@ class WaveformApp(ctk.CTkFrame):
         if not selected_channels:
             self.ax.text(0.5, 0.5, "SELECT AT LEAST ONE CHANNEL",
                          ha="center", va="center", transform=self.ax.transAxes)
+        elif (self.is_relative and self.ro == None):
+            self.ax.text(0.5, 0.5, "ENTER A BASE RESISTANCE",
+                         ha="center", va="center", transform=self.ax.transAxes)
         else:
             df = (self.payload.to_dataframe().set_index("Time")[selected_channels])
 
@@ -134,41 +165,44 @@ class WaveformApp(ctk.CTkFrame):
             long_df["Time"] = pandas.to_datetime(long_df["Time"],
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
+            
+            if not self.is_relative:
+                sns.lineplot(
+                    data=long_df,
+                    x="Time",
+                    y="Value",
+                    hue="Channel",
+                    palette=sns.color_palette("husl", len(selected_channels)),
+                    ax=self.ax,
+                    legend=True
+                )
+                self.ax.set_ylabel("Resistance (Ohms)")
 
-            sns.scatterplot(
-                data=long_df,
-                x="Time",
-                y="Value",
-                hue="Channel",
-                palette=sns.color_palette("husl", len(selected_channels)),
-                s=20,
-                ax=self.ax,
-                legend=True
-            )
+            else:
+                delta_df = long_df.copy()
+                delta_df['DeltaR_Ro'] = (delta_df['Value'] - self.ro) / self.ro
+                sns.lineplot(
+                    data=delta_df,
+                    x="Time",
+                    y="DeltaR_Ro",
+                    hue="Channel",
+                    palette=sns.color_palette("husl", len(selected_channels)),
+                    ax=self.ax,
+                    legend=True
+                )
+                self.ax.set_ylabel("∆R/Ro")
 
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             self.fig.autofmt_xdate()
 
             self.ax.set_xlabel("Time")
-            self.ax.set_ylabel("Resistance")
             self.ax.set_title("Active Resistance of the Channels")
 
         self.canvas.draw_idle()
 
+    def auto_update(self):
+        while True:
+            self._update_graph()
+            time.sleep(1)
 
-# if __name__ == "__main__":
-#     extra_keys = (
-#             ["5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"]
-#             + [f"{6001 + i} (OHM)" for i in range(21)]  # 6001 … 6022
-#     )
-
-#     p = Payload(
-#         window_size=1000000,
-#         num_rows_detach=10,
-#         out_file_name="output/10k_test.csv",
-#         keys=extra_keys,
-#         channels=21
-#     )
-
-#     WaveformApp(p).mainloop()

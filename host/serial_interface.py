@@ -9,23 +9,21 @@ class SerialInterface:
         self.baudrate = baudrate
         self.ser = None
 
-    def connect(self, port):
+    def connect(self, port, timeout=1):
         '''
         Connects to microcontroller.
         '''
         # loop through all open ports. Send 0, if ACK is heard back, connect to that COM Port
 
-        ser = serial.Serial(port, self.baudrate, timeout=1)
+        ser = serial.Serial(port, self.baudrate, timeout=timeout)
         ser.write("0\n".encode())
         resp = ser.readline().decode().strip()
-        time.sleep(0.5)
         if resp == "ACK":
             self.ser = ser
             self.port = port
-            return
-
-        
-        
+            return 0
+        else:
+            return 1
 
     def disconnect(self):
         '''
@@ -42,7 +40,7 @@ class SerialInterface:
 
         self.ser.write((command + '\n').encode())
 
-    def read_lines(self, callback):
+    def read_lines(self, plot):
         '''
         Spawns new thread to read from microcontroller and calls
         respective callback function.
@@ -54,7 +52,7 @@ class SerialInterface:
                     line = self.ser.readline().decode().strip()
                     if line:
                         # call the external function
-                        callback(line)
+                        plot(line)
 
                 except Exception as e:
                     print(f"Read error: {e}")
