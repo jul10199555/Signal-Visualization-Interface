@@ -2,7 +2,7 @@ from typing import Dict, Any, Tuple, Optional
 
 import numpy
 
-from host.payload import Payload
+from payload import Payload
 
 # CONST CONFIGURATIONS FOR THE DIFFERENT MATERIAL SET UPS
 

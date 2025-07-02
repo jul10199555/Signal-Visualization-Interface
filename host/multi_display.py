@@ -10,7 +10,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import threading
 import time
 
-from host.payload import Payload
+from payload import Payload
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")

@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from host.payload import Payload
-from host.heatmap import Heatmap, s5x41_switcher
+from payload import Payload
+from heatmap import Heatmap, s5x41_switcher
 
 #  ─── CustomTkinter Setup ─────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")

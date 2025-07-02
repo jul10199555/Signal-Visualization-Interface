@@ -478,19 +478,15 @@ class ControlPage(ctk.CTkFrame):
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
                         data += f"BEND,{payload['repetitions']}C"
-                        pico_data = ""
+                        pico_data = f"SET,{payload['repetitions']}C,"
                         if payload.get('motor speed'):
-                            data += f",{payload['motor speed']}RPM"
                             pico_data += f"{payload['motor speed']}RPM"
                         else:
-                            data += f",VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
                             pico_data+= f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
 
                         if payload.get('angle'):
-                            data += f",{payload['angle']}DEG"
                             pico_data += f",{payload['angle']}DEG"
                         else:
-                            data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
                             pico_data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
 
 
@@ -521,7 +517,7 @@ class ControlPage(ctk.CTkFrame):
                     if serial_interface.ser.readline().decode().strip() != 'ACK': return # mcu is ready to receive data
                     serial_interface.send_command(data) # send config data to MCU
                     raw = serial_interface.ser.readline().decode().strip() # MCU sends back header info to help structure payload
-                    on_config_selected(raw.split(','), int(payload['channels']), int(payload['sampling rate'])) # callback, destroys control page and takes user to main menu
+                    on_config_selected(raw.split(','), 40 if payload['channels'] == 21 else int(payload['channels']), int(payload['sampling rate'])) # callback, destroys control page and takes user to main menu
                 except Exception as e:
                     print(e)
                     print("Error: Machine and Material Selections Incompatible!")

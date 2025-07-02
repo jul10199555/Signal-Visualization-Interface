@@ -1,6 +1,6 @@
 import customtkinter as ctk
 
-from host.heatmap_display import HeatmapApp
+from heatmap_display import HeatmapApp
 from serial_interface import SerialInterface
 import serial.tools.list_ports as list_ports
 
