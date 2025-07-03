@@ -24,7 +24,8 @@ class Payload:
 
         if (keys is not None) and (channels is not None):
             self.channels = channels
-            self.keys = ["Scan", "Time"] + keys
+            cleaned_keys = [k.strip() for k in keys]
+            self.keys = ["Scan", "Time"] + cleaned_keys
         else:  # DEFAULT LAYOUT
             self.channels = 21
             self.keys = ["Scan", "Time", "temp", "rel_humid", "atm_pres", "tvoc", "lux", "dig0", "dig1", "dig2",

@@ -218,8 +218,8 @@ class Heatmap:
     def _mapping_coord(self, switcher: Dict[str, Tuple]) -> Dict[Tuple[int, int], float]:
         map_result: Dict[Tuple[int, int], float] = {}
         for raw_key in self.payload_entree.keys():
-            key = raw_key.strip()
-            convert_key: Tuple[int, int] = switcher.get(key, None)
+            # key = raw_key.strip()
+            convert_key: Tuple[int, int] = switcher.get(raw_key, None)
 
             if convert_key is not None:
 
