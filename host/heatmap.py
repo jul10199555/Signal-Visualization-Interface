@@ -8,46 +8,46 @@ from payload import Payload
 
 # 5x41 MATERIAL CONFIGURATION
 s5x41_switcher: Dict[str, Tuple[int, int]] = {
-    "6001 (OHM)": (1, 1),
-    "6002 (OHM)": (1, 3),
-    "6003 (OHM)": (2, 4),
-    "6004 (OHM)": (3, 1),
-    "6005 (OHM)": (3, 5),
-    "6006 (OHM)": (4, 2),
-    "6007 (OHM)": (4, 6),
-    "6008 (OHM)": (5, 3),
-    "6009 (OHM)": (5, 7),
-    "6010 (OHM)": (6, 4),
-    "6011 (OHM)": (6, 8),
-    "6012 (OHM)": (7, 5),
-    "6013 (OHM)": (7, 9),
-    "6014 (OHM)": (8, 6),
-    "6015 (OHM)": (8, 10),
-    "6016 (OHM)": (9, 7),
-    "6017 (OHM)": (9, 11),
-    "6018 (OHM)": (10, 8),
-    "6019 (OHM)": (10, 12),
-    "6020 (OHM)": (11, 9),
-    "6021 (OHM)": (11, 13),
-    "6022 (OHM)": (12, 10),
-    "6023 (OHM)": (12, 14),
-    "6024 (OHM)": (13, 11),
-    "6025 (OHM)": (13, 15),
-    "6026 (OHM)": (14, 12),
-    "6027 (OHM)": (14, 16),
-    "6028 (OHM)": (15, 13),
-    "6029 (OHM)": (15, 17),
-    "6030 (OHM)": (16, 14),
-    "6031 (OHM)": (16, 18),
-    "6032 (OHM)": (17, 15),
-    "6033 (OHM)": (17, 19),
-    "6034 (OHM)": (18, 16),
-    "6035 (OHM)": (18, 20),
-    "6036 (OHM)": (19, 17),
-    "6037 (OHM)": (19, 21),
-    "6038 (OHM)": (20, 18),
-    "6039 (OHM)": (21, 19),
-    "6040 (OHM)": (21, 21),
+    "1-1p (6001)": (1, 1),
+    "1-3p (6002)": (1, 3),
+    "2-4p (6003)": (2, 4),
+    "3-1p (6004)": (3, 1),
+    "3-5p (6005)": (3, 5),
+    "4-2p (6006)": (4, 2),
+    "4-6p (6007)": (4, 6),
+    "5-3p (6008)": (5, 3),
+    "5-7p (6009)": (5, 7),
+    "6-4p (6010)": (6, 4),
+    "6-8p (6011)": (6, 8),
+    "7-5p (6012)": (7, 5),
+    "7-9p (6013)": (7, 9),
+    "8-6p (6014)": (8, 6),
+    "8-10p (6015)": (8, 10),
+    "9-7p (6016)": (9, 7),
+    "9-11p (6017)": (9, 11),
+    "10-8p (6018)": (10, 8),
+    "10-12p (6019)": (10, 12),
+    "11-9p (6020)": (11, 9),
+    "11-13p (6021)": (11, 13),
+    "12-10p (6022)": (12, 10),
+    "12-14p (6023)": (12, 14),
+    "13-11p (6024)": (13, 11),
+    "13-15p (6025)": (13, 15),
+    "14-12p (6026)": (14, 12),
+    "14-16p (6027)": (14, 16),
+    "15-13p (6028)": (15, 13),
+    "15-17p (6029)": (15, 17),
+    "16-14p (6030)": (16, 14),
+    "16-18p (6031)": (16, 18),
+    "17-15p (6032)": (17, 15),
+    "17-19p (6033)": (17, 19),
+    "18-16p (6034)": (18, 16),
+    "18-20p (6035)": (18, 20),
+    "19-17p (6036)": (19, 17),
+    "19-21p (6037)": (19, 21),
+    "20-18p (6038)": (20, 18),
+    "21-19p (6039)": (21, 19),
+    "21-21p (6040)": (21, 21),
 }
 
 
@@ -134,57 +134,57 @@ class Heatmap:
         # PTS W/ NO INTERSECTIONS
         # 2-4'
         k = 2
-        key_a = (k, k + (max_height//2))
+        key_a = (k, k + (max_height // 2))
 
-        output_matrix[0][k*2] = mapped_pts[key_a]
+        output_matrix[0][k * 2] = mapped_pts[key_a]
 
         # 20-18'
         k = max_width - 1
-        key_a = (k, k - (max_height//2))
+        key_a = (k, k - (max_height // 2))
 
-        output_matrix[0][k*2] = mapped_pts[key_a]
+        output_matrix[0][k * 2] = mapped_pts[key_a]
 
         # 2-4'
         k = 2
-        key_a = (k, k + (max_height//2))
+        key_a = (k, k + (max_height // 2))
 
-        output_matrix[max_height][k*2] = mapped_pts[key_a]
+        output_matrix[max_height][k * 2] = mapped_pts[key_a]
 
         # 18-20'
         k = max_width - 1
-        key_a = (k - (max_height//2), k)
+        key_a = (k - (max_height // 2), k)
 
-        output_matrix[max_height][k*2] = mapped_pts[key_a]
+        output_matrix[max_height][k * 2] = mapped_pts[key_a]
 
         # 1-1'
         k = 1
         key_a = (1, 1)
-        key_b = (1, 1 + (max_height//2))
+        key_b = (1, 1 + (max_height // 2))
 
-        output_matrix[0][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
+        output_matrix[0][k * 2] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
         # 3-1'
         k = 1
         key_a = (1, 1)
         key_b = (1, 3)
 
-        output_matrix[max_height][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
+        output_matrix[max_height][k * 2] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
         # ONLY IF THE FULL CONFIGURATION OF SENSOR SINCE THIS IS THE ONLY VERTICAL COMPONENTS
         if max_width == 22:
             # 21-19'
             k = max_width
-            key_a = (k, k - (max_height//2))
+            key_a = (k, k - (max_height // 2))
             key_b = (k, k)
 
-            output_matrix[0][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
+            output_matrix[0][k * 2] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
             # 19-21'
             k = max_width
-            key_a = (k - (max_height//2), k)
+            key_a = (k - (max_height // 2), k)
             key_b = (k, k)
 
-            output_matrix[max_height][k*2] = (mapped_pts[key_a] + mapped_pts[key_b])/2
+            output_matrix[max_height][k * 2] = (mapped_pts[key_a] + mapped_pts[key_b]) / 2
 
         # FILL IN THE WHITESPACE BETWEEN EACH OF THE PTS W/ THE SURROUNDING AVERAGES
         baseline = output_matrix.copy()
@@ -217,16 +217,17 @@ class Heatmap:
     # float value is the associated resistance value of the line
     def _mapping_coord(self, switcher: Dict[str, Tuple]) -> Dict[Tuple[int, int], float]:
         map_result: Dict[Tuple[int, int], float] = {}
-        for key in self.payload_entree.keys():
-            convert_key: Tuple[int, int] = switcher.get(key, None)
+        for raw_key in self.payload_entree.keys():
+            # key = raw_key.strip()
+            convert_key: Tuple[int, int] = switcher.get(raw_key, None)
 
             if convert_key is not None:
 
                 # CHECK NEED TO DO THE BASE RESISTANCE CALC. FOR DERV.
                 if self.ro is None:
-                    map_result[convert_key] = self.payload_entree[key]
+                    map_result[convert_key] = self.payload_entree[raw_key]
                 else:
-                    map_result[convert_key] = (self.payload_entree[key] - self.ro)/self.ro
+                    map_result[convert_key] = (self.payload_entree[raw_key] - self.ro) / self.ro
         return map_result
 
     # UPDATE THE HEATMAP'S PAYLOAD ENTRE that's being used

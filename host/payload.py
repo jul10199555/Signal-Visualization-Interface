@@ -24,7 +24,8 @@ class Payload:
 
         if (keys is not None) and (channels is not None):
             self.channels = channels
-            self.keys = ["Scan", "Time"] + keys
+            cleaned_keys = [k.strip() for k in keys]
+            self.keys = ["Scan", "Time"] + cleaned_keys
         else:  # DEFAULT LAYOUT
             self.channels = 21
             self.keys = ["Scan", "Time", "temp", "rel_humid", "atm_pres", "tvoc", "lux", "dig0", "dig1", "dig2",
@@ -100,7 +101,13 @@ class Payload:
         return self.keys[-self.channels:]
 
     def get_most_recent_data(self) -> Dict[str, Any]:
-        return {k: dq[-1] for k, dq in self.data.items()}
+        result: Dict[str, Any] = {}
+        for k, dq in self.data.items():
+            if dq:
+                result[k] = dq[-1]
+            else:
+                result[k] = 0
+        return result
 
     # detach num_rows (oldest) rows  from the data and push it to the csv file
     # todo: add a limit for the csv files where it will push to another csv file when the file size is too large
