@@ -1,5 +1,6 @@
 # heatmap_ctk_refactored.py
 # pip install customtkinter
+import threading
 import time
 
 import customtkinter as ctk
@@ -34,6 +35,8 @@ class HeatmapApp(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas = canvas
         self.draw_heatmap()
+
+        threading.Thread(target=self.auto_update, daemon=True).start()
 
     def draw_heatmap(self):
         self.fig.clf()
