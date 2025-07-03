@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+from multi_display import WaveformApp
 from payload import Payload
 from heatmap import Heatmap, s5x41_switcher
 
@@ -17,10 +18,10 @@ ctk.set_default_color_theme("blue")
 
 
 class HeatmapApp(ctk.CTkFrame):
-    def __init__(self, master, payload: Payload, ro=None):
+    def __init__(self, master, payload: Payload, waveform: WaveformApp = None):
         super().__init__(master)
         self.payload = payload
-        self.ro = ro
+        self.waveform = waveform
 
         # Controls frame with Refresh button
         ctrl = ctk.CTkFrame(self)
@@ -62,7 +63,7 @@ class HeatmapApp(ctk.CTkFrame):
             return
 
         # Compute matrix and plot
-        hm = Heatmap(self.payload, self.ro)
+        hm = Heatmap(self.payload, self.waveform.get_ro())
         mat = hm.calc_pts_diagonal(s5x41_switcher)
 
         sns.heatmap(
