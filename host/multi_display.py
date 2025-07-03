@@ -194,6 +194,10 @@ class WaveformApp(ctk.CTkFrame):
                 )
                 self.ax.set_ylabel("∆R/Ro")
 
+            # Manually control the legend with 2 columns
+            handles, labels = self.ax.get_legend_handles_labels()
+            self.ax.legend(handles, labels, ncol=2, loc="upper right", bbox_to_anchor=(1, 1))
+            
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             self.fig.autofmt_xdate()
