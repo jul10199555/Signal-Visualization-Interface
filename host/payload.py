@@ -10,13 +10,13 @@ from typing import Dict, Deque, Any, List
 
 import pandas
 
-"""
-Collect variable-length CSV payload lines into fixed-length deques,
-then export the current window to a CSV file
-"""
 
 
 class Payload:
+    """
+    Collect variable-length CSV payload lines into fixed-length deques,
+    then export the current window to a CSV file
+    """
 
     # WINDOW SIZE IS THE AMOUNT OF DEPTH/SCANS OF DATA - Y VALUE
     def __init__(self, window_size: int, num_rows_detach: int, out_file_name: str, channels: int = None,
@@ -46,11 +46,11 @@ class Payload:
         for key in self.keys:
             self.data[key] = deque(maxlen=window_size)
 
-    """
-    Split `raw_payload` on commas and append each value to its deque.
-    'raw_payload' has to be in the same order as the init keys and no headers expected, SCAN # and Time will be auto
-    """
     def push(self, raw_payload: str, scan: int = None, time: datetime = None) -> None:
+        """
+        Split `raw_payload` on commas and append each value to its deque.
+        'raw_payload' has to be in the same order as the init keys and no headers expected, SCAN # and Time will be auto
+        """
 
         buffer = raw_payload.split(",")
 
@@ -80,15 +80,17 @@ class Payload:
             self.detach_rows(self.num_rows_detach, self.out_file_name)
 
     # DUMP THE CURRENT WINDOW OF THE PAYLOAD INTO A CSV FILE
-    def to_csv(self, file_name: str) -> None:
+    def to_csv(self) -> None:
+        '''Convert data to CSV'''
         if not self.data:
             raise RuntimeError("DATA UNDEF: NOTHING TO WRITE")
 
-        path = Path(file_name)
+        path = Path(self.out_file_name)
         (self.to_dataframe()).to_csv(path, mode="a", index=False, header=not path.exists())
 
     # Convert the data to a pandas' dataframe
     def to_dataframe(self, only_channels: bool = False) -> pandas.DataFrame:
+        '''Convert payload to pandas dataframe'''
         df = pandas.DataFrame({k: list(v) for k, v in self.data.items()})
         if only_channels:
             df = df[self.get_channels()]
@@ -98,6 +100,7 @@ class Payload:
         return df
 
     def get_channels(self) -> list[str]:
+        '''Get channel keys'''
         return self.keys[-self.channels:]
 
     def get_most_recent_data(self) -> Dict[str, Any]:
@@ -109,10 +112,9 @@ class Payload:
                 result[k] = 0
         return result
 
-    # detach num_rows (oldest) rows  from the data and push it to the csv file
     # todo: add a limit for the csv files where it will push to another csv file when the file size is too large
     def detach_rows(self, num_rows: int, file_name: str) -> None:
-
+        '''detach num_rows (oldest) rows  from the data and push it to the csv file'''
         row_size = len(self.data["Scan"])
         if row_size < num_rows:
             raise RuntimeError(f"NOT ENOUGH DATA TO DETACH ROWS: DESIRED={num_rows}, ACTUAL={row_size}")
