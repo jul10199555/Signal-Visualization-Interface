@@ -125,12 +125,12 @@ class App(ctk.CTk):
         self.navbar.grid(row=0, column=0, sticky="ew", pady=5)
 
         # Initialize pages
-        self.pages["Settings"] = SettingsPage(self.page_container, self.serial_interface, p.push, sampling_rate/1000,
+        self.pages["Settings"] = SettingsPage(self.page_container, self.serial_interface, p, sampling_rate/1000,
                                               self.control_page.get_robot())
         self.pages["Waveform"] = WaveformApp(self.page_container, p, False, 1000/sampling_rate)
         r_div = WaveformApp(self.page_container, p, True, 1000/sampling_rate)
         self.pages["∆R/Ro"] = r_div
-        self.pages["Heatmap"] = HeatmapApp(self.page_container, p, r_div.get_ro())  # Replace with real class
+        self.pages["Heatmap"] = HeatmapApp(self.page_container, p, r_div)  # Replace with real class
 
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
