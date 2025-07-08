@@ -4,7 +4,7 @@ import threading
 import time
 
 class SettingsPage(ctk.CTkFrame):
-    def __init__(self, master, serial_interface: SerialInterface, push, sampling_rate):
+    def __init__(self, master, serial_interface: SerialInterface, push, sampling_rate, robot=None):
         super().__init__(master)
         self.paused = True
         self.serial_interface = serial_interface
@@ -22,6 +22,8 @@ class SettingsPage(ctk.CTkFrame):
         self.stop_btn = ctk.CTkButton(button_frame, text="Stop Test", state="disabled", command=self.stop)
         self.stop_btn.pack(side='left', padx=10)
 
+        self.robot = robot
+
     def start(self):
         if self.paused:
             self.paused = False
@@ -32,6 +34,11 @@ class SettingsPage(ctk.CTkFrame):
             self.start_btn.configure(state="disabled")
             self.pause_btn.configure(state="normal")
 
+            # ENABLE ROBOT IF APPLICABLE
+            if self.robot:
+                t = threading.Thread(target=self.robot.run, daemon=True)
+                t.start()
+
     def pause(self):
         if not self.paused:
             self.paused = True
@@ -39,6 +46,9 @@ class SettingsPage(ctk.CTkFrame):
             self.write_thread.join()
             self.start_btn.configure(state="normal")
             self.pause_btn.configure(state="disabled")
+
+            if self.robot:
+                self.robot.stop()
 
     def stop(self):
         self.read_thread.join() if self.read_thread else None

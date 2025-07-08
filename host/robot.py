@@ -68,7 +68,7 @@ if __name__ == "__main__":
         "192.168.56.101",
         [1.314, -1.407, 1.772, -1.985, -1.634, -0.262],
         [1.384, -1.044, 1.889, -2.492, -1.617, -0.137],
-        period_time=4
+        period_time=3
     )
 
     t = threading.Thread(target=robot.run, daemon=True)

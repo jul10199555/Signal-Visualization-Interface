@@ -1,4 +1,6 @@
 import customtkinter as ctk
+
+from robot import Robot
 from serial_interface import SerialInterface
 import serial.tools.list_ports as list_ports
 import input_validation as iv
@@ -48,6 +50,10 @@ class ControlPage(ctk.CTkFrame):
         self.isFingerBend = False
         self.pico_port = ""
         self.pico_ser = None
+
+        self.robot = None
+
+
 
         def pack_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -273,24 +279,79 @@ class ControlPage(ctk.CTkFrame):
                 pack_test_settings(machine_settings_frame)
                 pack_load_and_displacement(machine_settings_frame)
                 pack_hx711_load(machine_settings_frame)
-            elif option == "Festo": # Festo
-                pack_test_settings(machine_settings_frame)
-                initial_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
-                initial_coord_frame.pack(padx=20, pady=5, anchor="w")
+            elif option == "Festo":
+                ctk.CTkLabel(machine_settings_frame, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
 
-                ctk.CTkLabel(initial_coord_frame, text="Non-Contact/Initial Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
-                initial_coord = ctk.CTkEntry(initial_coord_frame, placeholder_text="e.g., 5,1,12")
-                initial_coord.pack(side="left")
+                # IP Address
+                ip_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                ip_frame.pack(padx=20, pady=5, anchor="w")
+                ctk.CTkLabel(ip_frame, text="Robot IP Address:").pack(side="left", padx=(0, 5))
+                ip_entry = ctk.CTkEntry(ip_frame, placeholder_text="e.g., 192.168.56.101")
+                ip_entry.pack(side="left")
+                ip_entry.insert(0, "192.168.56.101")
+                machine_form_fields["ip_address"] = ip_entry
 
-                final_coord_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
-                final_coord_frame.pack(padx=20, pady=5, anchor="w")
+                # Up Joint Positions (6 floats)
+                up_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                up_frame.pack(padx=20, pady=5, anchor="w")
+                ctk.CTkLabel(up_frame, text="Up Joint Pos:").pack(side="left", padx=(0, 5))
+                up_entry = ctk.CTkEntry(up_frame, placeholder_text="j0,j1,j2,j3,j4,j5")
+                up_entry.pack(side="left")
+                up_entry.insert(0, "1.314,-1.407,1.772,-1.985,-1.634,-0.262")
+                machine_form_fields["up_jpos"] = up_entry
 
-                ctk.CTkLabel(final_coord_frame, text="Contact/Final Coordinates (x,y,z):").pack(side="left", anchor="w", padx=(0,5))
-                final_coord = ctk.CTkEntry(final_coord_frame, placeholder_text="e.g., 0,5,2")
-                final_coord.pack(side="left")
+                # Down Joint Positions (6 floats)
+                down_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                down_frame.pack(padx=20, pady=5, anchor="w")
+                ctk.CTkLabel(down_frame, text="Down Joint Pos:").pack(side="left", padx=(0, 5))
+                down_entry = ctk.CTkEntry(down_frame, placeholder_text="j0,j1,j2,j3,j4,j5")
+                down_entry.pack(side="left")
+                down_entry.insert(0, "1.384,-1.044,1.889,-2.492,-1.617,-0.137")
+                machine_form_fields["down_jpos"] = down_entry
 
-                machine_form_fields["initial coordinates"] = initial_coord
-                machine_form_fields["final coordinates"] = final_coord
+                # Period Time
+                period_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                period_frame.pack(padx=20, pady=5, anchor="w")
+                ctk.CTkLabel(period_frame, text="Period Time (s):").pack(side="left", padx=(0, 5))
+                period_entry = ctk.CTkEntry(period_frame, width=80, placeholder_text="e.g., 3.0")
+                period_entry.pack(side="left")
+                period_entry.insert(0, "3.0")
+                machine_form_fields["period_time"] = period_entry
+
+                # Velocity & Acceleration
+                va_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                va_frame.pack(padx=20, pady=5, anchor="w")
+                ctk.CTkLabel(va_frame, text="Velocity (0–1):").pack(side="left", padx=(0, 5))
+                vel_entry = ctk.CTkEntry(va_frame, width=60, placeholder_text="1.0")
+                vel_entry.pack(side="left", padx=(0, 15))
+                vel_entry.insert(0, "1.0")
+                ctk.CTkLabel(va_frame, text="Acceleration (0–1):").pack(side="left", padx=(0, 5))
+                acc_entry = ctk.CTkEntry(va_frame, width=60, placeholder_text="1.0")
+                acc_entry.pack(side="left")
+                acc_entry.insert(0, "1.0")
+                machine_form_fields["velocity"] = vel_entry
+                machine_form_fields["acceleration"] = acc_entry
+
+                # Connect Button Only
+                btn_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
+                btn_frame.pack(padx=20, pady=15, anchor="w")
+
+                def on_connect():
+                    ip = ip_entry.get().strip()
+                    up = [float(x) for x in up_entry.get().split(",")]
+                    down = [float(x) for x in down_entry.get().split(",")]
+                    period = float(period_entry.get())
+                    vel = float(vel_entry.get())
+                    acc = float(acc_entry.get())
+
+                    robot = Robot(ip, up, down, period, velocity=vel, acceleration=acc)
+                    self.robot = robot
+
+                    # simple feedback
+                    ctk.CTkLabel(btn_frame, text="✓ Connected", text_color="green").pack(side="left", padx=(10, 0))
+
+                ctk.CTkButton(btn_frame, text="Connect", command=on_connect).pack(side="left")
+
             elif option == "Angular Bending/Deformation Prototype": # Angular Bending
                 self.isFingerBend = True
                 speed_var = ctk.StringVar(value="off")
@@ -619,3 +680,6 @@ class ControlPage(ctk.CTkFrame):
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=20)
+
+    def get_robot(self):
+        return self.robot
