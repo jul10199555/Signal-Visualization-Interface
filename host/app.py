@@ -140,11 +140,10 @@ class App(ctk.CTk):
 
     def switch_frame(self, selected):
         '''Displays <selected> tab to user'''
-        page = self.pages.get(selected)
-        if page:
-            page.tkraise()
-
-        self.initial_page.tkraise()
+        if selected in self.pages:
+            self.pages[selected].tkraise()
+        else:
+            self.initial_page.tkraise()
 
     def show_control_page(self):
         '''Shows control page'''
