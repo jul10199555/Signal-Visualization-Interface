@@ -1,6 +1,7 @@
 import sys
 import random # REMOVE IN FINAL PRODUCT
 from itertools import count #REMOVE IN FINAL PRODUCT
+import time
 
 class DataHandler():
     '''
@@ -16,25 +17,36 @@ class DataHandler():
         self.paused = True
         self.index = count() # REMOVE IN FINAL PRODUCT
         self.channels = 0
+        self.ready = False
 
-    def get_speed(self):
+    def wait(self):
+        '''Waits until parameters have been configured. CALL AFTER CALLING RUN, AND BEFORE CALLING GETTERS'''
+        while not self.ready:
+            time.sleep(1)
+
+    def get_speed(self) -> int:
+        '''Returns motor speed. CALL WAIT FIRST'''
         return self.speed
     
     def get_angle(self):
+        '''Returns motor angle. CALL WAIT FIRST'''
         return self.angle
     
-    def get_cycles(self):
+    def get_cycles(self) -> int:
+        '''Returns motor angle. CALL WAIT FIRST'''
         return self.cycles
     
-    def get_variable_speed(self):
+    def get_variable_speed(self) -> tuple:
+        '''Returns tuple of variable speed paramters. CALL WAIT FIRST'''
         return self.vary_speed
     
-    def get_variable_angle(self):
+    def get_variable_angle(self) -> tuple:
+        '''Returns tuple of variable angle parameters. CALL WAIT FIRST'''
         return self.vary_angle
 
     def run(self):
         '''
-        Starts the main loop of the data exchange
+        Starts the main loop of the data exchange. CALL BEFORE WAIT
         '''
         while True:
             # check for command
@@ -117,6 +129,7 @@ class DataHandler():
                 elif p.startswith('VDEG'):
                     p = p.split('_')[1:]
                     self.vary_angle = (int(p[0][1:]), int(p[1][1:]), int(p[2][1:]))
+            self.ready = True
 
         elif command.startswith("PAUSE"):
             self.paused = True
