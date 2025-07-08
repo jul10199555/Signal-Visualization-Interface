@@ -73,6 +73,7 @@ class WaveformApp(ctk.CTkFrame):
             else:
                 ro_entry.configure(border_color='red')
 
+        # Change layout if relative resistance option is true
         if self.is_relative:
             ro_frame = ctk.CTkFrame(body, fg_color='transparent')
             ro_frame.grid(row=0, column=1, pady=5)
@@ -113,17 +114,15 @@ class WaveformApp(ctk.CTkFrame):
 
         threading.Thread(target=self.auto_update, daemon=True).start()
 
-    # placeholder
-    def _noop(self, *_):
-        pass
-
     def _time_period_switch(self, value):
+        '''Switches time period, modifying how much data is shown.'''
         self.window_size_label = value
         self.window_size_disp = self.time_period[value]
 
         self._update_graph()
 
     def _mass_select(self):
+        '''Selects every since channel in the list.'''
         # CHECK WHETHER TO SELECT OR UNSELECT ALL -> if a single channel is unselected then the mode will be select al
         # UNSELECT WILL ONLY HAPPEN WHEN ALL CHANNELS ARE TOGGLED ON
         select_all: bool = False
@@ -140,9 +139,11 @@ class WaveformApp(ctk.CTkFrame):
         self._update_graph()
 
     def get_ro(self):
+        '''Returns base resistance to parent'''
         return self.ro
 
     def _update_graph(self):
+        '''Updates graph if a channel is selected.'''
         selected_channels = [
             name for name, cb in self.channel_box_select.items() if cb.get()
         ]
@@ -208,6 +209,7 @@ class WaveformApp(ctk.CTkFrame):
         self.canvas.draw_idle()
 
     def auto_update(self):
+        '''Updates graph every second. Spawned in a thread.'''
         while True:
             self._update_graph()
             time.sleep(1)
