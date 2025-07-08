@@ -757,3 +757,6 @@ class ControlPage(ctk.CTkFrame):
 
         # Submit button
         ctk.CTkButton(param_frame, text="Submit", command=submit_values).pack(pady=10)
+
+    def get_robot(self):
+        return self.robot
