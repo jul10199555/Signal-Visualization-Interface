@@ -51,7 +51,7 @@ class ControlPage(ctk.CTkFrame):
         self.board = board
         self.machine = ""
         self.material = ""
-        self.isFingerBend = False
+        self.need_pico = False
         self.pico_port = ""
         self.pico_ser = None
 
@@ -117,13 +117,6 @@ class ControlPage(ctk.CTkFrame):
 
             load_readings_available = ctk.CTkCheckBox(load_frame, text="Are Load Readings Available?")
             load_readings_available.pack(anchor="w")
-            # 🔹 Load Cell Capacity row (above, on same line)
-            load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
-            load_cell_row.pack(anchor="w", pady=5)
-
-            ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
-            load_cell_cap = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
-            load_cell_cap.pack(side="left")
 
             # 🔹 Voltage-Newton Equivalence row
             volt_force_row = ctk.CTkFrame(load_frame, fg_color="transparent")
@@ -141,13 +134,12 @@ class ControlPage(ctk.CTkFrame):
             machine_form_fields["displacement readings"] = {"widget": disp_readings_available, "validate": None}
             machine_form_fields["displacement voltage"] = {"widget": disp_voltage, "validate": iv.check_float}
             machine_form_fields["displacement distance"] = {"widget": disp_dist, "validate": iv.check_float}
-            machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["mm", "cm", "in"]}
+            machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["NA", "mm", "cm", "in"]}
 
             machine_form_fields["load readings"] = {"widget": load_readings_available, "validate": None}
-            machine_form_fields["load cell capacity"] = {"widget": load_cell_cap, "validate": iv.check_float}
             machine_form_fields["load voltage"] = {"widget": voltage_entry, "validate": iv.check_float}
             machine_form_fields["load force"] = {"widget": force_entry, "validate": iv.check_float}
-            machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ["kN", "N", "kg", "g"]}
+            machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ['NA', 'g', 'N', 'kg', 'kN']}
 
         def pack_hx711_load(parent):
             '''Packs hx711 load settings into UI.'''
@@ -170,7 +162,7 @@ class ControlPage(ctk.CTkFrame):
 
             machine_form_fields["hx711 load readings"] = {"widget": load_readings, "validate": None}
             machine_form_fields["hx711 load cell capacity"] = {"widget": load_cell_entry, "validate": iv.check_float}
-            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ["N", "kg", "g"]}
+            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ['NA', 'g', 'N', 'kg', 'kN']}
 
         def pack_strain(parent):
             '''Packs strain configuration settings into UI.'''
@@ -275,12 +267,13 @@ class ControlPage(ctk.CTkFrame):
                 widget.destroy()
 
             machine_form_fields.clear() # clear dict every time option is chosen
-            self.isFingerBend = False
+            self.need_pico = False
 
             if option != machine_options[0]:
                 self.machine = option
 
             if option == "Shimadzu":
+                pack_test_settings(machine_settings_frame)
                 pack_displacement_and_load(machine_settings_frame)
             elif option == "MTS":
                 pack_test_settings(machine_settings_frame)
@@ -308,7 +301,7 @@ class ControlPage(ctk.CTkFrame):
                 machine_form_fields["initial coordinates"] = initial_coord
                 machine_form_fields["final coordinates"] = final_coord
             elif option == "Angular Bending/Deformation Prototype": # Angular Bending
-                self.isFingerBend = True
+                self.need_pico = True
                 speed_var = ctk.StringVar(value="off")
                 angle_var = ctk.StringVar(value="off")
 
@@ -404,14 +397,24 @@ class ControlPage(ctk.CTkFrame):
                 machine_form_fields["angle"] = {"widget": angle, "validate": iv.check_float}
 
             elif option == "One-Axis Strain Prototype": # Single-Axis Strain
+                self.need_pico = True
                 pack_test_settings(machine_settings_frame)
                 pack_strain(machine_settings_frame)
+                pack_hx711_load(machine_settings_frame)
                 motor_disp_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 motor_disp_frame.pack(padx=20, pady=5, anchor="w")
                 
                 ctk.CTkLabel(motor_disp_frame, text="Motor Displacement (mm/min):").pack(anchor="w", side="left", padx=(0, 5))
                 motor_disp = ctk.CTkEntry(motor_disp_frame, placeholder_text="e.g., 60")
                 motor_disp.pack(side="left")
+
+                def set_port(port):
+                    '''Sets port for connecting to Raspberry Pi Pico'''
+                    self.pico_port = port
+
+                ctk.CTkLabel(machine_settings_frame, text="Select Control MCU", font=("Helvetica", 16, 'bold')).pack(anchor='w')
+                com_menu = ComPortMenu(machine_settings_frame, set_port)
+                com_menu.pack(pady=5, anchor='w')
 
                 machine_form_fields["motor displacement"] = {"widget": motor_disp, "validate": iv.check_float}
 
@@ -487,6 +490,8 @@ class ControlPage(ctk.CTkFrame):
             for key, meta in board_fields.items():
                 extract(key, meta)
 
+            dist_units = ['NA', 'mm', 'cm', 'm']
+            force_units = ['NA', 'g', 'N', 'kg', 'kN']
             # Construct payload data
             if not self.error_flag:
                 try:
@@ -501,12 +506,31 @@ class ControlPage(ctk.CTkFrame):
 
                     data += ","
 
-                    if self.machine == "Shimadzu" or self.machine == "MTS" or "Mini-Shimadzu":
-                        data += "SMDZ" if self.machine == "Shimadzu" else ""
-                        data += f"MTS,{payload['repetitions']}C" if self.machine == "MTS" else ""
-                        data += f"MINI,{payload['repetitions']}C,{"HXLR" if payload['hx711 load readings'] else "NHXLR"},HX{payload['hx711 load cell capacity']+'_'+payload['hx711 load cell units']}"if self.machine == "Mini-Shimadzu" else ""
-                        data += f",{"DR" if payload["displacement readings"] else "NDR"},{payload["displacement voltage"]}V_{payload["displacement distance"]+'_'+payload["displacement distance units"]}"
-                        data += f",{"LR" if payload['load readings'] else "NLR"},{payload['load cell capacity']}_{payload['load voltage']}V,{payload['load force']+'_'+payload['load force units']}"
+
+                    if self.machine == "Shimadzu" or self.machine == "MTS" or self.machine == "Mini-Shimadzu":
+                        data += f'{payload['repetitions']},'
+                        if not payload['displacement readings']:
+                            payload['displacement voltage'] = payload['displacement distance'] = '0'
+                            payload['displacement distance units'] = 'NA'
+
+                        if not payload['load readings']:
+                            payload['load force'] = payload['load voltage'] = '0'
+                            payload['load force units'] = 'NA'
+
+                        if self.machine == 'Mini-Shimadzu' and not payload['hx711 load readings']:
+                            payload['hx711 load cell capacity'] = '0'
+                            payload['hx711 load cell units'] = 'NA'
+                        
+                        data += "S" if self.machine == "Shimadzu" else ""
+                        data += f"T" if self.machine == "MTS" else ""
+                        data += f"M"if self.machine == "Mini-Shimadzu" else ""
+                        # Displacement Data
+                        data += f",{"D" if payload["displacement readings"] else "N"},{payload["displacement voltage"]}_{payload["displacement distance"]+'_'+str(dist_units.index(payload["displacement distance units"]))}"
+                        # Load Data
+                        data += f",{"L" if payload['load readings'] else "N"},{payload['load force']}_{payload['load voltage'] +'_'+str(force_units.index(payload['load force units']))}"
+                        # HX711 Data
+                        if self.machine == 'Mini-Shimadzu':
+                            data += f",{"H" if payload['hx711 load readings'] else "N"},{payload['hx711 load cell capacity']+'_'+str(force_units.index(payload['hx711 load cell units']))}"
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
                         data += f"BEND,{payload['repetitions']}C"
@@ -523,22 +547,27 @@ class ControlPage(ctk.CTkFrame):
 
 
                     elif self.machine == "One-Axis Strain Prototype":
+                        if not payload['hx711 load readings']:
+                            payload['hx711 load cell capacity'] = '0'
+                            payload["hx711 load cell units"] = 'NA'
                         data += f"OAX,{payload['repetitions']}C"
-                        data += f",{payload['strain']}N,{payload['motor displacement']}mm"
+                        pico_data = f"SET,{payload['repetitions']}C"
+                        pico_data += f",{payload['strain']}N,{payload['motor displacement']}mm"
+                        data += f",{payload['hx711 load readings']},{payload['hx711 load cell capacity']},{str(force_units.index(payload['hx711 load cell units']))}"
 
                     if self.material == "CNT-GFW" or self.material == "GS-GFW":
-                        data += f",{"CNT" if self.material == "CNT-GFW" else "GS"},{payload["test type"][-2]},L{payload['length']},W{payload['width']},H{payload['height']},{'D' if payload["debond"] else 'ND'},S{payload['sensor number']}"
+                        data += f",{"C" if self.material == "CNT-GFW" else "G"},{payload["test type"][-2]},{payload['length']},{payload['width']},{payload['height']},{'D' if payload["debond"] else 'ND'},{payload['sensor number']}"
 
                     elif self.material == "MWCNT" or self.material == "MXene" or self.material == "Cx-Alpha":
-                        data += ",MW" if self.material == "MWCNT" else ""
-                        data += ",MX" if self.material == "MXene" else ""
-                        data += ",CX" if self.material == "Cx-Alpha" else ""
-                        data += f",L{payload['length']},W{payload['width']},H{payload['height']},R{payload['row']}_C{payload['column']},S{payload['sensor number']}"
+                        data += ",M" if self.material == "MWCNT" else ""
+                        data += ",X" if self.material == "MXene" else ""
+                        data += ",C" if self.material == "Cx-Alpha" else ""
+                        data += f",{payload['length']},{payload['width']},{payload['height']},{payload['column']}_{payload['row']},{payload['sensor number']}"
 
-                    data += f",CHAN{payload['channels']}"
+                    data += f",{payload['channels']}"
                     print(data)
                     # if finger bend is selected, connect to RP Pico
-                    if self.isFingerBend:
+                    if self.need_pico:
                         self.pico_ser = SerialInterface()
                         # attempt to connect to pico
                         if self.pico_ser.connect(self.pico_port, 5):

@@ -19,8 +19,8 @@ class SettingsPage(ctk.CTkFrame):
         self.start_btn = ctk.CTkButton(button_frame, text="Start/Resume", command=self.start)
         self.start_btn.pack(side='left', padx=10)
 
-        self.pause_btn = ctk.CTkButton(button_frame, text="Pause Test", state="disabled", command=self.pause)
-        self.pause_btn.pack(side='left', padx=10)
+        # self.pause_btn = ctk.CTkButton(button_frame, text="Pause Test", state="disabled", command=self.pause)
+        # self.pause_btn.pack(side='left', padx=10)
 
         self.stop_btn = ctk.CTkButton(button_frame, text="Stop Test", command=self.stop)
         self.stop_btn.pack(side='left', padx=10)
@@ -34,7 +34,7 @@ class SettingsPage(ctk.CTkFrame):
             self.write_thread = threading.Thread(target=self.request_data, daemon=True)
             self.write_thread.start()
             self.start_btn.configure(state="disabled")
-            self.pause_btn.configure(state="normal")
+            # self.pause_btn.configure(state="normal")
 
     def pause(self):
         '''Pauses the test. Terminates read/write threads'''
@@ -43,7 +43,7 @@ class SettingsPage(ctk.CTkFrame):
             self.read_thread.join()
             self.write_thread.join()
             self.start_btn.configure(state="normal")
-            self.pause_btn.configure(state="disabled")
+            # self.pause_btn.configure(state="disabled")
 
     def stop(self):
         '''Stops test. Terminates read/write threads and writes data to csv.'''
@@ -52,7 +52,7 @@ class SettingsPage(ctk.CTkFrame):
             self.read_thread.join() if self.read_thread else None
             self.write_thread.join() if self.write_thread else None
             self.start_btn.configure(state="disabled")
-            self.pause_btn.configure(state="disabled")
+            # self.pause_btn.configure(state="disabled")
             self.p.to_csv()
             self.serial_interface.disconnect()
 
