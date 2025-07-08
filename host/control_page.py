@@ -626,6 +626,7 @@ class ControlPage(ctk.CTkFrame):
                         data += f",{payload['length']},{payload['width']},{payload['height']},{payload['column']}_{payload['row']},{payload['sensor number']}"
 
                     data += f",{payload['channels']}"
+                    pico_data += f",{payload['channels']}"
                     print(data)
                     # if finger bend is selected, connect to RP Pico
                     if self.need_pico:

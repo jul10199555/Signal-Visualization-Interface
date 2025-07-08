@@ -77,9 +77,7 @@ class DataHandler():
             sys.stdout.write("ACK\n") # can put stuff before this, e.g. wait for calibration
             config_data = sys.stdin.readline()
             config_data = config_data.split(',')
-            for segment in config_data:
-                if segment.startswith("CHAN"):
-                    self.channels = int(segment[4:])
+            self.channels = int(config_data[-1])
 
             channel_header = ""
             if self.channels == 1:
