@@ -4,51 +4,6 @@ import numpy
 
 from payload import Payload
 
-# CONST CONFIGURATIONS FOR THE DIFFERENT MATERIAL SET UPS
-
-# 5x41 MATERIAL CONFIGURATION
-s5x41_switcher: Dict[str, Tuple[int, int]] = {
-    "1-1p (6001)": (1, 1),
-    "1-3p (6002)": (1, 3),
-    "2-4p (6003)": (2, 4),
-    "3-1p (6004)": (3, 1),
-    "3-5p (6005)": (3, 5),
-    "4-2p (6006)": (4, 2),
-    "4-6p (6007)": (4, 6),
-    "5-3p (6008)": (5, 3),
-    "5-7p (6009)": (5, 7),
-    "6-4p (6010)": (6, 4),
-    "6-8p (6011)": (6, 8),
-    "7-5p (6012)": (7, 5),
-    "7-9p (6013)": (7, 9),
-    "8-6p (6014)": (8, 6),
-    "8-10p (6015)": (8, 10),
-    "9-7p (6016)": (9, 7),
-    "9-11p (6017)": (9, 11),
-    "10-8p (6018)": (10, 8),
-    "10-12p (6019)": (10, 12),
-    "11-9p (6020)": (11, 9),
-    "11-13p (6021)": (11, 13),
-    "12-10p (6022)": (12, 10),
-    "12-14p (6023)": (12, 14),
-    "13-11p (6024)": (13, 11),
-    "13-15p (6025)": (13, 15),
-    "14-12p (6026)": (14, 12),
-    "14-16p (6027)": (14, 16),
-    "15-13p (6028)": (15, 13),
-    "15-17p (6029)": (15, 17),
-    "16-14p (6030)": (16, 14),
-    "16-18p (6031)": (16, 18),
-    "17-15p (6032)": (17, 15),
-    "17-19p (6033)": (17, 19),
-    "18-16p (6034)": (18, 16),
-    "18-20p (6035)": (18, 20),
-    "19-17p (6036)": (19, 17),
-    "19-21p (6037)": (19, 21),
-    "20-18p (6038)": (20, 18),
-    "21-19p (6039)": (21, 19),
-    "21-21p (6040)": (21, 21),
-}
 
 
 class Heatmap:
@@ -63,7 +18,10 @@ class Heatmap:
     def calc_pts_diagonal(self, switcher: Dict[str, Tuple]) -> numpy.ndarray:
         mapped_pts: Dict[Tuple[int, int], float] = self._mapping_coord(switcher)
         width_list = [k[0] for k in mapped_pts]
-        max_width = max(width_list)
+        if width_list is None:
+            max_width = 0
+        else:
+            max_width = max(width_list)
         max_height = 4
 
         # OUTPUT 2D MATRIX WILL HAVE THE DIMENSION: max_width*2 (to account for the half points in the intersections)
@@ -228,6 +186,10 @@ class Heatmap:
                     map_result[convert_key] = self.payload_entree[raw_key]
                 else:
                     map_result[convert_key] = (self.payload_entree[raw_key] - self.ro) / self.ro
+            else:
+                raise RuntimeError(f"Unknown key {raw_key}, not following the Header format: {switcher.keys()}."
+                                   f"THE HEADER FORMAT ENTERED HAS TO MATCH THE CONST. SWITCHER FOR MAPPING"
+                                   f"-> CHANGE 'program_configrations.py' to fix.")
         return map_result
 
     # UPDATE THE HEATMAP'S PAYLOAD ENTRE that's being used
