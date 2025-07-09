@@ -298,7 +298,7 @@ class ControlPage(ctk.CTkFrame):
                 ip_entry = ctk.CTkEntry(ip_frame, placeholder_text="e.g., 192.168.56.101")
                 ip_entry.pack(side="left")
                 ip_entry.insert(0, "192.168.56.101")
-                machine_form_fields["ip_address"] = ip_entry
+                # machine_form_fields["ip_address"] = ip_entry
 
                 # Up Joint Positions (6 floats)
                 up_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -307,7 +307,7 @@ class ControlPage(ctk.CTkFrame):
                 up_entry = ctk.CTkEntry(up_frame, placeholder_text="j0,j1,j2,j3,j4,j5")
                 up_entry.pack(side="left")
                 up_entry.insert(0, "1.314,-1.407,1.772,-1.985,-1.634,-0.262")
-                machine_form_fields["up_jpos"] = up_entry
+                # machine_form_fields["up_jpos"] = up_entry
 
                 # Down Joint Positions (6 floats)
                 down_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -316,7 +316,7 @@ class ControlPage(ctk.CTkFrame):
                 down_entry = ctk.CTkEntry(down_frame, placeholder_text="j0,j1,j2,j3,j4,j5")
                 down_entry.pack(side="left")
                 down_entry.insert(0, "1.384,-1.044,1.889,-2.492,-1.617,-0.137")
-                machine_form_fields["down_jpos"] = down_entry
+                # machine_form_fields["down_jpos"] = down_entry
 
                 # Period Time
                 period_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -325,7 +325,7 @@ class ControlPage(ctk.CTkFrame):
                 period_entry = ctk.CTkEntry(period_frame, width=80, placeholder_text="e.g., 3.0")
                 period_entry.pack(side="left")
                 period_entry.insert(0, "3.0")
-                machine_form_fields["period_time"] = period_entry
+                # machine_form_fields["period_time"] = period_entry
 
                 # Velocity & Acceleration
                 va_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
@@ -338,8 +338,6 @@ class ControlPage(ctk.CTkFrame):
                 acc_entry = ctk.CTkEntry(va_frame, width=60, placeholder_text="1.0")
                 acc_entry.pack(side="left")
                 acc_entry.insert(0, "1.0")
-                machine_form_fields["velocity"] = vel_entry
-                machine_form_fields["acceleration"] = acc_entry
 
                 # Connect Button Only
                 btn_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
