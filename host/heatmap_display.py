@@ -8,9 +8,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import program_configrations
+
 from multi_display import WaveformApp
 from payload import Payload
-from heatmap import Heatmap, s5x41_switcher
+from heatmap import Heatmap
 
 #  ─── CustomTkinter Setup ─────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")
@@ -64,7 +66,7 @@ class HeatmapApp(ctk.CTkFrame):
 
         # Compute matrix and plot
         hm = Heatmap(self.payload, self.waveform.get_ro())
-        mat = hm.calc_pts_diagonal(s5x41_switcher)
+        mat = hm.calc_pts_diagonal(program_configrations.S5X41_SWITCHER)
 
         sns.heatmap(
             mat,
