@@ -134,18 +134,18 @@ class ControlPage(ctk.CTkFrame):
             ctk.CTkLabel(volt_force_row, text="V =").pack(side="left", padx=2)
             force_entry = ctk.CTkEntry(volt_force_row, width=60, placeholder_text="e.g., 500")
             force_entry.pack(side="left", padx=2)
-            force_units = ctk.CTkComboBox(volt_force_row, values=["kN", "N", "kg", "g"], width=80)
+            force_units = ctk.CTkComboBox(volt_force_row, values=["g", "N", "kg", "kN"], width=80)
             force_units.pack(side="left", padx=2)
 
             machine_form_fields["displacement readings"] = {"widget": disp_readings_available, "validate": None}
             machine_form_fields["displacement voltage"] = {"widget": disp_voltage, "validate": iv.check_float}
             machine_form_fields["displacement distance"] = {"widget": disp_dist, "validate": iv.check_float}
-            machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["NA", "mm", "cm", "in"]}
+            machine_form_fields["displacement distance units"] = {"widget": disp_dist_units, "validate": lambda val: val in ["N", "mm", "cm", "in"]}
 
             machine_form_fields["load readings"] = {"widget": load_readings_available, "validate": None}
             machine_form_fields["load voltage"] = {"widget": voltage_entry, "validate": iv.check_float}
             machine_form_fields["load force"] = {"widget": force_entry, "validate": iv.check_float}
-            machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ['NA', 'g', 'N', 'kg', 'kN']}
+            machine_form_fields["load force units"] = {"widget": force_units, "validate": lambda val: val in ['g', 'N', 'kg', 'kN']}
 
         def pack_hx711_load(parent):
             '''Packs hx711 load settings into UI.'''
@@ -160,15 +160,15 @@ class ControlPage(ctk.CTkFrame):
             load_cell_row = ctk.CTkFrame(load_frame, fg_color="transparent")
             load_cell_row.pack(anchor="w", pady=5)
 
-            ctk.CTkLabel(load_cell_row, text="Load Cell Capacity (N):").pack(side="left", padx=(0, 5))
+            ctk.CTkLabel(load_cell_row, text="Load Cell Capacity:").pack(side="left", padx=(0, 5))
             load_cell_entry = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
             load_cell_entry.pack(side="left")
-            force_units = ctk.CTkComboBox(load_cell_row, values=["N", "kg", "g"], width=80)
+            force_units = ctk.CTkComboBox(load_cell_row, values=["g", "N", "kg"], width=80)
             force_units.pack(side="left", padx=2)
 
             machine_form_fields["hx711 load readings"] = {"widget": load_readings, "validate": None}
             machine_form_fields["hx711 load cell capacity"] = {"widget": load_cell_entry, "validate": iv.check_float}
-            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ['NA', 'g', 'N', 'kg', 'kN']}
+            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ['mg', 'g', 'N', 'kg', 'kN']}
 
         def pack_strain(parent):
             '''Packs strain configuration settings into UI.'''
@@ -549,82 +549,96 @@ class ControlPage(ctk.CTkFrame):
             for key, meta in board_fields.items():
                 extract(key, meta)
 
-            dist_units = ['NA', 'mm', 'cm', 'm']
-            force_units = ['NA', 'g', 'N', 'kg', 'kN']
+            dist_units = ['N', 'mm', 'cm', 'in']
+            force_units = ['mg', 'g', 'N', 'kg', 'kN']
+
             # Construct payload data
             if not self.error_flag:
                 try:
                     if board == "MUX32":
-                        data = f"MUX32,ENV_{payload['temp units'] if payload['temp checkbox'] else "NT"}"
-                        data += f"_{"RH" if payload['rh checkbox'] else "NRH"}_{payload['pressure units'] if payload['pressure checkbox'] else "NP"}"
-                        data += f"_{payload['gas units'] if payload['gas checkbox'] else "NG"}"
-                        data += f"_{payload['lux units'] + "_" + payload['lux bits'] if payload['light checkbox'] else "NL"}"
-
+                        data = f"MUX32,{payload['temp units'] if payload['temp checkbox'] else "N"}"
+                        data += f"_{"H" if payload['rh checkbox'] else "N"}"
+                        data += f"_{payload['pressure units'] if payload['pressure checkbox'] else "N"}"
+                        data += f"_{payload['gas units'] if payload['gas checkbox'] else "N"}"
+                        data += f",{payload['lux units'] + "_" + payload['lux bits'] if payload['light checkbox'] else "N"}"
                     else:
                         data = "MUX08"
 
                     data += ","
 
-
                     if self.machine == "Shimadzu" or self.machine == "MTS" or self.machine == "Mini-Shimadzu":
-                        data += f'{payload['repetitions']},'
+                        
+                        data += "S" if self.machine == "Shimadzu" else ""
+                        data += "T" if self.machine == "MTS" else ""
+                        data += "M"if self.machine == "Mini-Shimadzu" else ""
+
+                        data += f',{payload['repetitions']}'
+
                         if not payload['displacement readings']:
                             payload['displacement voltage'] = payload['displacement distance'] = '0'
-                            payload['displacement distance units'] = 'NA'
+                            payload['displacement distance units'] = 'N'
 
                         if not payload['load readings']:
                             payload['load force'] = payload['load voltage'] = '0'
-                            payload['load force units'] = 'NA'
+                            payload['load force units'] = 'N'
 
-                        if self.machine == 'Mini-Shimadzu' and not payload['hx711 load readings']:
-                            payload['hx711 load cell capacity'] = '0'
-                            payload['hx711 load cell units'] = 'NA'
-
-                        data += "S" if self.machine == "Shimadzu" else ""
-                        data += f"T" if self.machine == "MTS" else ""
-                        data += f"M"if self.machine == "Mini-Shimadzu" else ""
                         # Displacement Data
-                        data += f",{"D" if payload["displacement readings"] else "N"},{payload["displacement voltage"]}_{payload["displacement distance"]+'_'+str(dist_units.index(payload["displacement distance units"]))}"
+                        data += f",{"D" if payload["displacement readings"] else "N"}_{payload["displacement voltage"]}_{payload["displacement distance"]+'_'+str(dist_units.index(payload["displacement distance units"]))}"
                         # Load Data
-                        data += f",{"L" if payload['load readings'] else "N"},{payload['load force']}_{payload['load voltage'] +'_'+str(force_units.index(payload['load force units']))}"
-                        # HX711 Data
-                        if self.machine == 'Mini-Shimadzu':
-                            data += f",{"H" if payload['hx711 load readings'] else "N"},{payload['hx711 load cell capacity']+'_'+str(force_units.index(payload['hx711 load cell units']))}"
+                        data += f",{"L" if payload['load readings'] else "N"}_{payload['load force']}_{payload['load voltage'] +'_'+str(force_units.index(payload['load force units']))}"
 
                     elif self.machine == "Angular Bending/Deformation Prototype":
-                        data += f"BEND,{payload['repetitions']}C"
+                        data += f"F,{payload['repetitions']}"
+
                         pico_data = f"SET,{payload['repetitions']}C,"
+
                         if payload.get('motor speed'):
+                            data += f",S_0.0_{payload['motor speed']}_0.0"
                             pico_data += f"{payload['motor speed']}RPM"
                         else:
-                            pico_data+= f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
+                            data += f"V_{payload['initial speed']}_{payload['final speed']}_{payload['speed step']}"
+                            pico_data += f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
 
                         if payload.get('angle'):
+                            data += f",A_0.0_{payload['angle']}_0.0"
                             pico_data += f",{payload['angle']}DEG"
                         else:
+                            data += f",V_{payload['initial angle']}_{payload['final angle']}_{payload['angle step']}"
                             pico_data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
 
 
                     elif self.machine == "One-Axis Strain Prototype":
-                        if not payload['hx711 load readings']:
-                            payload['hx711 load cell capacity'] = '0'
-                            payload["hx711 load cell units"] = 'NA'
-                        data += f"OAX,{payload['repetitions']}C"
+                        data += f"O,{payload['repetitions']}C"
                         pico_data = f"SET,{payload['repetitions']}C"
                         pico_data += f",{payload['strain']}N,{payload['motor displacement']}mm"
-                        data += f",{payload['hx711 load readings']},{payload['hx711 load cell capacity']},{str(force_units.index(payload['hx711 load cell units']))}"
+                        
+                    if self.machine == 'Mini-Shimadzu' or self.machine == "One-Axis Strain Prototype":
+                        if not payload['hx711 load readings']:
+                            payload['hx711 load cell capacity'] = '0'
+                            payload['hx711 load cell units'] = 'N'
+                        
+                        # HX711 Data
+                        data += f",{"H" if payload['hx711 load readings'] else "N"}_{payload['hx711 load cell capacity']+'_'+str(force_units.index(payload['hx711 load cell units']))}"
+                    else:
+                        data += ",N_0_0"
 
                     if self.material == "CNT-GFW" or self.material == "GS-GFW":
-                        data += f",{"C" if self.material == "CNT-GFW" else "G"},{payload["test type"][-2]},{payload['length']},{payload['width']},{payload['height']},{'D' if payload["debond"] else 'ND'},{payload['sensor number']}"
+                        data += f",{"C" if self.material == "CNT-GFW" else "G"}"
+                        data += f",{payload["test type"][-2]}"
+                        data += f",{payload['length']}_{payload['width']}_{payload['height']}"
+                        data += f",{'D' if payload["debond"] else 'N'}"
+                        data += f",{payload['sensor number']}"
 
                     elif self.material == "MWCNT" or self.material == "MXene" or self.material == "Cx-Alpha":
                         data += ",M" if self.material == "MWCNT" else ""
                         data += ",X" if self.material == "MXene" else ""
                         data += ",C" if self.material == "Cx-Alpha" else ""
-                        data += f",{payload['length']},{payload['width']},{payload['height']},{payload['column']}_{payload['row']},{payload['sensor number']}"
+                        data += f",{payload['length']}_{payload['width']}_{payload['height']}"
+                        data += f",{payload['column']}_{payload['row']},{payload['sensor number']}"
 
                     data += f",{payload['channels']}"
                     print(data)
+
                     # if finger bend is selected, connect to RP Pico
                     if self.need_pico:
                         pico_data += f",{payload['channels']}"
@@ -650,34 +664,39 @@ class ControlPage(ctk.CTkFrame):
                 lux_units.configure(state="normal" if light_checkbox.get() else "disabled")
                 lux_bits.configure(state="normal" if light_checkbox.get() else "disabled")
 
-            env_frame = ctk.CTkFrame(self, fg_color="transparent")
-            env_frame.pack(pady=5)
+            tehu_frame = ctk.CTkFrame(self, fg_color="transparent")
+            tehu_frame.pack(pady=5)
+
+            praq_frame = ctk.CTkFrame(self, fg_color="transparent")
+            praq_frame.pack(pady=5)
 
             light_frame = ctk.CTkFrame(self, fg_color="transparent")
             light_frame.pack(pady=5)
 
-            temp_units = ctk.CTkComboBox(env_frame, values=["C", "F"], state="disabled")
-            temp_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Temperature Measurement", command=lambda: temp_units.configure(state="normal" if temp_checkbox.get() else "disabled"))
+            temp_units = ctk.CTkComboBox(tehu_frame, values=["C", "F"], state="disabled")
+            temp_checkbox = ctk.CTkCheckBox(tehu_frame, text="Enable Temperature Measurement", command=lambda: temp_units.configure(state="normal" if temp_checkbox.get() else "disabled"))
             temp_checkbox.pack(side="left", padx=10)
             temp_units.pack(side="left", padx=10)
 
-            rh_checkbox = ctk.CTkCheckBox(env_frame, text="Enable R.H% Measurement")
+            rh_checkbox = ctk.CTkCheckBox(tehu_frame, text="Enable R.H% Measurement")
             rh_checkbox.pack(side="left", padx=10)
 
-            pressure_units = ctk.CTkComboBox(env_frame, values=["hPa", "mBar", "mmHg"], state="disabled")
-            pressure_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Atm. Pressure Measurement", command=lambda: pressure_units.configure(state="normal" if pressure_checkbox.get() else "disabled"))
+            pressure_units = ctk.CTkComboBox(praq_frame, values=["hPa", "mBar", "mmHg"], state="disabled")
+            pressure_checkbox = ctk.CTkCheckBox(praq_frame, text="Enable Atm. Pressure Measurement", command=lambda: pressure_units.configure(state="normal" if pressure_checkbox.get() else "disabled"))
             pressure_checkbox.pack(side="left", padx=10)
             pressure_units.pack(side="left", padx=10)
 
-            gas_units = ctk.CTkComboBox(env_frame, values=["KOhms", "TVoC Scale"], state="disabled")
-            gas_checkbox = ctk.CTkCheckBox(env_frame, text="Enable Gas Measurement", command=lambda: gas_units.configure(state="normal" if gas_checkbox.get() else "disabled"))
+            gas_units = ctk.CTkComboBox(praq_frame, values=["KOhms", "TVoC"], state="disabled")
+            gas_checkbox = ctk.CTkCheckBox(praq_frame, text="Enable Gas Measurement", command=lambda: gas_units.configure(state="normal" if gas_checkbox.get() else "disabled"))
             gas_checkbox.pack(side="left", padx=10)
             gas_units.pack(side="left", padx=10)
 
             lux_units = ctk.CTkComboBox(light_frame, values=["ALS", "UVS"], state="disabled")
-            lux_bits = ctk.CTkComboBox(light_frame, values=["16", "17", "18", "19", "20"], state="disabled")
+            lux_bits = ctk.CTkComboBox(light_frame, values=["13", "16", "17", "18", "19", "20"], state="disabled")
+            
             light_checkbox = ctk.CTkCheckBox(light_frame, text="Enable Ambient/UV Light Measurement", command=config_light)
             light_checkbox.pack(side="left", padx=10)
+
             ctk.CTkLabel(light_frame, text="Lux Mode").pack(side="left", padx=10)
             lux_units.pack(side="left", padx=10)
             ctk.CTkLabel(light_frame, text="Lux Bits").pack(side="left", padx=10)
@@ -690,10 +709,10 @@ class ControlPage(ctk.CTkFrame):
             board_fields["pressure checkbox"] = {"widget": pressure_checkbox, "validate": None}
             board_fields["pressure units"] = {"widget": pressure_units, "validate": lambda val: not(val not in ["hPa", "mBar", "mmHg"] and pressure_checkbox.get())}
             board_fields["gas checkbox"] = {"widget": gas_checkbox, "validate": None}
-            board_fields["gas units"] = {"widget": gas_units, "validate": lambda val: not(val not in ["KOhms", "TVoC Scale"] and gas_checkbox.get())}
+            board_fields["gas units"] = {"widget": gas_units, "validate": lambda val: not(val not in ["KOhms", "TVoC"] and gas_checkbox.get())}
             board_fields["light checkbox"] = {"widget": light_checkbox, "validate": None}
             board_fields["lux units"] = {"widget": lux_units, "validate": lambda val: not(val not in ["ALS", "UVS"] and light_checkbox.get())}
-            board_fields["lux bits"] = {"widget": lux_bits, "validate": lambda val: not(val not in ["16", "17", "18", "19", "20"] and light_checkbox.get())}
+            board_fields["lux bits"] = {"widget": lux_bits, "validate": lambda val: not(val not in ["13", "16", "17", "18", "19", "20"] and light_checkbox.get())}
 
         # Main param frame
         param_frame = ctk.CTkFrame(self, fg_color="transparent")

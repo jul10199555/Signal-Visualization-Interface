@@ -18,7 +18,7 @@ class SerialInterface:
         ser = serial.Serial(port, self.baudrate, timeout=timeout)
         ser.write("0\n".encode())
         resp = ser.readline().decode().strip()
-        if resp == "ACK":
+        if resp == "0":
             self.ser = ser
             self.port = port
             return 0
@@ -30,7 +30,7 @@ class SerialInterface:
         Closes microcontroller connection. 
         '''
         if self.ser and self.ser.is_open:
-            self.ser.write(b"EXIT\n")
+            self.ser.write(b"END\n")
             self.ser.close()
     
     def send_command(self, command: str):
