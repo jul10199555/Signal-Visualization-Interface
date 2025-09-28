@@ -51,8 +51,6 @@ class Payload:
         Split `raw_payload` on commas and append each value to its deque.
         'raw_payload' has to be in the same order as the init keys and no headers expected, SCAN # and Time will be auto
         """
-        
-        print(raw_payload)
 
         buffer = raw_payload.split(",")
 
