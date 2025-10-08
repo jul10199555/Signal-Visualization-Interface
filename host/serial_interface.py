@@ -52,7 +52,7 @@ class SerialInterface:
                     line = self.ser.readline().decode().strip()
                     if line:
                         # call the external function
-                        # print(line)
+                        print(line)
                         plot(line)
 
                 except Exception as e:

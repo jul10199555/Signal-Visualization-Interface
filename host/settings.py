@@ -69,13 +69,9 @@ class SettingsPage(ctk.CTkFrame):
             if self.robot:
                 self.robot.stop()
 
-
-
     def request_data(self):
         '''Called by write thread. Requests data from board.'''
         while self.paused == False:
             self.serial_interface.send_command("r")
             time.sleep(self.sampling_rate)
         print("Paused, thread exiting")
-        
-

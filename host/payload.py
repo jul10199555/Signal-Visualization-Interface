@@ -10,8 +10,6 @@ from typing import Dict, Deque, Any, List
 
 import pandas
 
-
-
 class Payload:
     """
     Collect variable-length CSV payload lines into fixed-length deques,
@@ -33,6 +31,8 @@ class Payload:
             for ch in range(self.channels):
                 self.keys.append(f"R{ch}")
 
+        # print(self.keys)
+        
         if num_rows_detach > window_size:
             raise RuntimeError(f"NUMBER OF ROWS TO DETACH EXCEEDS WINDOW SIZE: window_size={window_size}, "
                                f"num_rows_detach={num_rows_detach} ")

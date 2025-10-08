@@ -1,10 +1,6 @@
 from typing import Dict, Any, Tuple, Optional
-
 import numpy
-
 from payload import Payload
-
-
 
 class Heatmap:
 

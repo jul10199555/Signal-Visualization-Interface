@@ -37,10 +37,8 @@ class ComPortMenu(ctk.CTkFrame):
 
         refresh_button = ctk.CTkButton(port_frame, text="Refresh", command=update_com_ports, width=60)
         refresh_button.pack(side="left")
-
 class ControlPage(ctk.CTkFrame):
     '''A page which houses all configuration settings for the test.'''
-
     def __init__(self, master, serial_interface: SerialInterface, board: str, on_config_selected):
         super().__init__(master)
         machine_form_fields = {}
@@ -650,10 +648,20 @@ class ControlPage(ctk.CTkFrame):
                         self.pico_ser.send_command(pico_data)
                         
                     serial_interface.send_command("1")
-                    if serial_interface.ser.readline().decode().strip() != 'ACK': return # mcu is ready to receive data
-                    serial_interface.send_command(data) # send config data to MCU
-                    raw = serial_interface.ser.readline().decode().strip() # MCU sends back header info to help structure payload
-                    on_config_selected(raw.split(','), 40 if payload['channels'] == 21 else int(payload['channels']), payload['filename'], int(payload['max data']), int(payload['sampling rate'])) # callback, destroys control page and takes user to main menu
+
+                    # mcu is ready to receive data
+                    if serial_interface.ser.readline().decode().strip() != '0': return
+                    
+                    # send config data to MCU
+                    serial_interface.send_command(data)
+
+                    # MCU sends back header info to help structure payload
+                    raw = serial_interface.ser.readline().decode().strip()
+
+                    # print(raw)
+
+                    # callback, destroys control page and takes user to main menu
+                    on_config_selected(raw.split(','), 40 if payload['channels'] == 21 else int(payload['channels']), payload['filename'], int(payload['max data']), int(payload['sampling rate']))
                 except Exception as e:
                     print(e)
                     # print("Error: Machine and Material Selections Incompatible!")

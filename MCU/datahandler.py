@@ -125,7 +125,3 @@ class DataHandler():
 
         else:
             print("No command received")
-            
-if __name__ == "__main__":
-    dh = DataHandler()
-    dh.run()
