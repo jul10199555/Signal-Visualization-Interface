@@ -65,6 +65,8 @@ class FirstExecutionMenu(ctk.CTkFrame):
         port_menu.pack(pady=20)
 
         board_dropdown = ctk.CTkComboBox(self, values=["Select a Board", "MUX32", "MUX08"], command=select_board)
+        board_dropdown.set("MUX32")  # ← valor por defecto
+        self.board = "MUX32"   
         board_dropdown.pack(pady=20)
 
         ctk.CTkButton(self, text="Submit", command=request_connect).pack(pady=20)
@@ -96,11 +98,26 @@ class App(ctk.CTk):
         self.pages = {}
 
     def on_board_selected(self, board):
-        '''Called upon leaving first settings page. creates control page and displays it to the user'''
+        '''Crea la página de control y permite regresar a la inicial'''
         self.initial_page.destroy()
-        self.control_page = ControlPage(self.page_container, self.serial_interface, board, self.on_config_sent)
+
+        # Callback para regresar
+        def go_back():
+            self.control_page.destroy()
+            self.initial_page = FirstExecutionMenu(self, self.serial_interface, self.on_board_selected)
+            self.initial_page.grid(row=0, column=0, sticky='nsew')
+
+        self.control_page = ControlPage(
+            self.page_container,
+            self.serial_interface,
+            board,
+            self.on_config_sent,
+            on_back=go_back  # 👈 se pasa el callback
+        )
         self.control_page.grid(row=0, column=0, sticky='nsew')
         self.show_control_page()
+        self.serial_interface.disconnect()
+
 
     def on_config_sent(self, header, channels, filename, window_size, sampling_rate):
         '''Called upon leaving control page. creates main interface UI'''
