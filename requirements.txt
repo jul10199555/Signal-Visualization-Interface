@@ -1,0 +1,7 @@
+customtkinter
+pyserial
+urx
+matplotlib
+seaborn
+numpy
+pandas
