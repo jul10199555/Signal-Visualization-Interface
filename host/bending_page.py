@@ -2,6 +2,7 @@
 import customtkinter as ctk
 import threading
 import time
+import json  # para enviar dict JSON
 
 from serial_interface import SerialInterface
 
@@ -273,7 +274,8 @@ class BendingPage(ctk.CTkFrame):
     def _validate(self, mode: str):
         self._clear_errors()
         ok = True
-        data = {"mode": mode}
+        # >>> Cambio clave: guardamos 'modo' (entero 1..4), no 'mode'
+        data = {"modo": self._mode_number(mode)}
 
         # ---- Ángulo ----
         if "angle_const" in self.inputs:
@@ -319,7 +321,7 @@ class BendingPage(ctk.CTkFrame):
             if v_i is None or not (7 <= v_i <= 30):
                 self.errors["speed_init"].configure(text="Inicial debe ser 7–30.")
                 ok = False
-            if v_f is None or not (7 <= v_f <= 30):  # <- corregido 'or'
+            if v_f is None or not (7 <= v_f <= 30):
                 self.errors["speed_final"].configure(text="Final debe ser 7–30.")
                 ok = False
             if st is None or not (7 <= st <= 30):
@@ -338,27 +340,48 @@ class BendingPage(ctk.CTkFrame):
     def _mode_number(mode_name: str) -> int:
         return {"Mode 1": 1, "Mode 2": 2, "Mode 3": 3, "Mode 4": 4}.get(mode_name, 0)
 
-    def _compose_command_list(self, cfg: dict) -> str:
+    def _compose_command_json(self, cfg: dict) -> str:
         """
-        Devuelve un string con un list (entre corchetes) según el modo:
-        - Mode 1: [1, speed, angle]
-        - Mode 2: [2, speed_const, angle_init, angle_final, angle_step]
-        - Mode 3: [3, speed_init, speed_final, speed_step, angle_const]
-        - Mode 4: [4, speed_init, speed_final, speed_step, angle_init, angle_final, angle_step]
+        Devuelve un JSON string con 'modo' (español) y las llaves esperadas por el firmware:
+        - Modo 1: {"modo":1, "velocity":speed, "angle":angle}
+        - Modo 2: {"modo":2, "velocity":speed, "init_angle":ai, "final_angle":af, "step_angle":sa}
+        - Modo 3: {"modo":3, "angle":angle, "init_vel":iv, "final_vel":fv, "step_vel":sv}
+        - Modo 4: {"modo":4, "init_angle":ai, "final_angle":af, "step_angle":sa,
+                           "init_vel":iv, "final_vel":fv, "step_vel":sv}
         """
-        m = self._mode_number(cfg["mode"])
+        # >>> Cambio clave: leemos 'modo' del cfg
+        m = cfg["modo"]
         if m == 1:
-            payload = [m, cfg["speed"], cfg["angle"]]
+            payload = {"modo": 1, "velocity": cfg["speed"], "angle": cfg["angle"]}
         elif m == 2:
-            payload = [m, cfg["speed"], cfg["angle_init"], cfg["angle_final"], cfg["angle_step"]]
+            payload = {
+                "modo": 2,
+                "velocity": cfg["speed"],
+                "init_angle": cfg["angle_init"],
+                "final_angle": cfg["angle_final"],
+                "step_angle": cfg["angle_step"],
+            }
         elif m == 3:
-            payload = [m, cfg["speed_init"], cfg["speed_final"], cfg["speed_step"], cfg["angle"]]
+            payload = {
+                "modo": 3,
+                "angle": cfg["angle"],
+                "init_vel": cfg["speed_init"],
+                "final_vel": cfg["speed_final"],
+                "step_vel": cfg["speed_step"],
+            }
         elif m == 4:
-            payload = [m, cfg["speed_init"], cfg["speed_final"], cfg["speed_step"],
-                       cfg["angle_init"], cfg["angle_final"], cfg["angle_step"]]
+            payload = {
+                "modo": 4,
+                "init_angle": cfg["angle_init"],
+                "final_angle": cfg["angle_final"],
+                "step_angle": cfg["angle_step"],
+                "init_vel": cfg["speed_init"],
+                "final_vel": cfg["speed_final"],
+                "step_vel": cfg["speed_step"],
+            }
         else:
-            payload = [0]
-        return "[" + ",".join(str(x) for x in payload) + "]"
+            payload = {"modo": 0}
+        return json.dumps(payload, separators=(",", ":"))
 
     def _start_reader(self):
         """
@@ -385,7 +408,8 @@ class BendingPage(ctk.CTkFrame):
 
                 self._set_status("Leyendo datos...")
                 while not self.stop_event.is_set():
-                    raw = ser.readline().decode(errors="ignore").strip()
+                    raw = self.serial_interface.ser.readline().decode().strip()
+                    print(raw)
                     if not raw:
                         continue
 
@@ -397,7 +421,6 @@ class BendingPage(ctk.CTkFrame):
                     if vel is not None and ang is not None:
                         self._update_readings(ang, vel)
 
-                    # Evitar CPU spin si llegan bursts vacíos
                     time.sleep(0.003)
 
             except Exception as e:
@@ -451,7 +474,9 @@ class BendingPage(ctk.CTkFrame):
             return
 
         print(cfg)  # echo en consola
-        cmd_str = self._compose_command_list(cfg)
+
+        # Enviar JSON con 'modo' (no 'mode')
+        cmd_str = self._compose_command_json(cfg)
         self._send_submit_command(cmd_str)
 
         # Mostrar sección Lectura si es la primera vez
