@@ -3,6 +3,7 @@ import customtkinter as ctk
 import threading
 import time
 import json  # para enviar dict JSON
+import ast   # <<< nuevo: para parsear la lista recibida de forma segura
 
 from serial_interface import SerialInterface
 
@@ -274,7 +275,7 @@ class BendingPage(ctk.CTkFrame):
     def _validate(self, mode: str):
         self._clear_errors()
         ok = True
-        # >>> Cambio clave: guardamos 'modo' (entero 1..4), no 'mode'
+        # >>> 'modo' (entero 1..4)
         data = {"modo": self._mode_number(mode)}
 
         # ---- Ángulo ----
@@ -342,14 +343,8 @@ class BendingPage(ctk.CTkFrame):
 
     def _compose_command_json(self, cfg: dict) -> str:
         """
-        Devuelve un JSON string con 'modo' (español) y las llaves esperadas por el firmware:
-        - Modo 1: {"modo":1, "velocity":speed, "angle":angle}
-        - Modo 2: {"modo":2, "velocity":speed, "init_angle":ai, "final_angle":af, "step_angle":sa}
-        - Modo 3: {"modo":3, "angle":angle, "init_vel":iv, "final_vel":fv, "step_vel":sv}
-        - Modo 4: {"modo":4, "init_angle":ai, "final_angle":af, "step_angle":sa,
-                           "init_vel":iv, "final_vel":fv, "step_vel":sv}
+        Devuelve un JSON string con 'modo' (español) y las llaves esperadas por el firmware.
         """
-        # >>> Cambio clave: leemos 'modo' del cfg
         m = cfg["modo"]
         if m == 1:
             payload = {"modo": 1, "velocity": cfg["speed"], "angle": cfg["angle"]}
@@ -383,10 +378,61 @@ class BendingPage(ctk.CTkFrame):
             payload = {"modo": 0}
         return json.dumps(payload, separators=(",", ":"))
 
+    # ----- NUEVO: parser de líneas estilo ['modo',1,'velocity',20,'angle',1] -----
+    @staticmethod
+    def _parse_modo_velocity_angle(s: str):
+        """
+        Intenta parsear una línea tipo lista Python:
+        ['modo', 1, 'velocity', 20, 'angle', 1]
+        Devuelve (modo:int|None, velocity:int|None, angle:int|None) o (None, None, None) si no se pudo.
+        """
+        try:
+            lst = ast.literal_eval(s)
+            if not isinstance(lst, list):
+                return None, None, None
+            # convertir a pares clave-valor
+            d = {}
+            i = 0
+            while i + 1 < len(lst):
+                k = lst[i]
+                v = lst[i + 1]
+                if isinstance(k, str):
+                    key = k.strip().lower()
+                    # intenta castear a int si aplica
+                    try:
+                        val = int(v)
+                    except Exception:
+                        val = v
+                    d[key] = val
+                i += 2
+            modo = d.get("modo")
+            velocity = d.get("velocity", d.get("velocidad"))
+            angle = d.get("angle", d.get("angulo"))
+            # validar ints
+            for name, val in (("modo", modo), ("velocity", velocity), ("angle", angle)):
+                if val is None:
+                    continue
+                if not isinstance(val, int):
+                    try:
+                        if isinstance(val, str) and val.strip().isdigit():
+                            if name == "modo":
+                                modo = int(val)
+                            elif name == "velocity":
+                                velocity = int(val)
+                            elif name == "angle":
+                                angle = int(val)
+                        else:
+                            return None, None, None
+                    except Exception:
+                        return None, None, None
+            return modo, velocity, angle
+        except Exception:
+            return None, None, None
+
     def _start_reader(self):
         """
         Inicia hilo para leer continuamente lo que llegue por serial.
-        NO espera OK/READY; imprime todo y si el mensaje es [vel, ang] actualiza labels.
+        Ahora decodifica ['modo',1,'velocity',20,'angle',1] y actualiza UI.
         """
         if self.listening:
             return
@@ -409,17 +455,15 @@ class BendingPage(ctk.CTkFrame):
                 self._set_status("Leyendo datos...")
                 while not self.stop_event.is_set():
                     raw = self.serial_interface.ser.readline().decode().strip()
-                    print(raw)
                     if not raw:
                         continue
 
-                    # Imprime todo lo recibido
+                    # Log opcional
                     print(f"[RX] {raw}")
 
-                    # Si viene como [vel, ang], actualiza UI
-                    vel, ang = self._parse_vel_ang_list(raw)
-                    if vel is not None and ang is not None:
-                        self._update_readings(ang, vel)
+                    modo, vel, ang = self._parse_modo_velocity_angle(raw)
+                    if (modo is not None) and (vel is not None) and (ang is not None):
+                        self._update_readings(modo, ang, vel)
 
                     time.sleep(0.003)
 
@@ -431,33 +475,15 @@ class BendingPage(ctk.CTkFrame):
         self.reader_thread = threading.Thread(target=_worker, daemon=True)
         self.reader_thread.start()
 
-    @staticmethod
-    def _parse_vel_ang_list(s: str):
-        """
-        Parse de un string estilo '[vel, ang]' -> (vel:int, ang:int)
-        Acepta espacios.
-        """
-        try:
-            st = s.strip()
-            if not (st.startswith("[") and st.endswith("]")):
-                return None, None
-            st = st[1:-1]  # sin corchetes
-            parts = [p.strip() for p in st.split(",")]
-            if len(parts) < 2:
-                return None, None
-            vel = int(parts[0])
-            ang = int(parts[1])
-            return vel, ang
-        except Exception:
-            return None, None
-
     def _set_status(self, text: str):
         # En el hilo de UI
         self.after(0, lambda: self.status_label.configure(text=text))
 
-    def _update_readings(self, angle_val: int, speed_val: int):
+    def _update_readings(self, mode_val: int, angle_val: int, speed_val: int):
         # En el hilo de UI
         def _do():
+            if hasattr(self, "mode_value_label"):
+                self.mode_value_label.configure(text=str(mode_val))
             if hasattr(self, "angle_value_label"):
                 self.angle_value_label.configure(text=str(angle_val))
             if hasattr(self, "speed_value_label"):
@@ -473,9 +499,7 @@ class BendingPage(ctk.CTkFrame):
         if not ok:
             return
 
-        print(cfg)  # echo en consola
-
-        # Enviar JSON con 'modo' (no 'mode')
+        # Enviar JSON con 'modo'
         cmd_str = self._compose_command_json(cfg)
         self._send_submit_command(cmd_str)
 
@@ -484,7 +508,7 @@ class BendingPage(ctk.CTkFrame):
             self._build_read_section()
             self.read_section_shown = True
 
-        # Arrancar lector (sin esperar OK/READY)
+        # Arrancar lector
         self._start_reader()
 
     # Enviar el comando armado por Submit
@@ -505,7 +529,6 @@ class BendingPage(ctk.CTkFrame):
     # Botón "Pause": enviar "PAUSE"
     def _on_pause(self):
         try:
-            print("PAUSE")
             if not self._ensure_serial_ready():
                 return
             if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
@@ -519,7 +542,6 @@ class BendingPage(ctk.CTkFrame):
     # Botón "Stop": enviar "STOP"
     def _on_stop(self):
         try:
-            print("STOP")
             if not self._ensure_serial_ready():
                 return
             if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
@@ -537,6 +559,13 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(
             anchor="w", pady=(0, 8)
         )
+
+        # Fila superior: Modo
+        mode_row = ctk.CTkFrame(self.read_frame, fg_color="transparent")
+        mode_row.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(mode_row, text="Modo", font=("Helvetica", 14, "bold")).pack(side="left")
+        self.mode_value_label = ctk.CTkLabel(mode_row, text="--", font=("Helvetica", 18))
+        self.mode_value_label.pack(side="left", padx=(8, 0))
 
         grid = ctk.CTkFrame(self.read_frame, fg_color="transparent")
         grid.pack(fill="x")
