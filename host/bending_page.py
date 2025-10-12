@@ -19,7 +19,7 @@ except Exception:
 from serial_interface import SerialInterface
 
 # === presetsBending ===
-import presetsBending  # nuevo: importamos tus presetsBending .py
+import presetsBending  # importamos tus presetsBending .py
 
 
 class BendingPage(ctk.CTkFrame):
@@ -39,6 +39,19 @@ class BendingPage(ctk.CTkFrame):
         self.data_rows = []                # filas [t_rel, velocity, angle, resistance]
         self.expected_modo = 1             # modo esperado según selección UI
         self.log_lock = threading.Lock()   # acceso thread-safe al buffer
+
+        # ===== Plot en vivo =====
+        self.LIVE_REFRESH_MS = 250         # intervalo de refresco (ms)
+        self.live_enabled = False
+        self.live_job = None
+        self.plot_x_name = "tiempo"
+        self.plot_y_name = "angulo"
+
+        # refs matplotlib
+        self._mpl_canvas = None
+        self._mpl_fig = None
+        self._mpl_ax = None
+        self._mpl_line = None
 
         # ===== Layout base =====
         self.grid_rowconfigure(1, weight=1)
@@ -152,7 +165,7 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkButton(submit_row, text="Submit", command=self._on_submit, width=110).pack(side="left", pady=4, padx=(0, 6))
         ctk.CTkButton(submit_row, text="Pause", command=self._on_pause, width=90, fg_color="#888").pack(side="left", pady=4, padx=6)
         ctk.CTkButton(submit_row, text="Stop", command=self._on_stop, width=90, fg_color="#b33").pack(side="left", pady=4, padx=6)
-        # Nuevo: Export CSV independiente (no detiene)
+        # Export CSV independiente (no detiene)
         ctk.CTkButton(submit_row, text="Export CSV", command=self._on_export_csv, width=110, fg_color="#2c7a7b").pack(side="left", pady=4, padx=6)
 
         # ---- Barra inferior ----
@@ -163,38 +176,37 @@ class BendingPage(ctk.CTkFrame):
         back_btn.pack(side="left")
 
         # ====== Sección de Gráfica ======
-        # Contenedor visible después de que exista la sección de lectura
         self.plot_section = ctk.CTkFrame(self.scroll, fg_color="transparent")
-        # Combos X/Y y botón
+        # Controles X/Y + Live switch
         self.plot_controls = ctk.CTkFrame(self.plot_section, fg_color="transparent")
         self.plot_controls.pack(fill="x", pady=(10, 6))
 
         ctk.CTkLabel(self.plot_controls, text="X:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
         self.param_options = ["tiempo", "resistencia", "angulo", "velocidad"]
-        self.combo_x = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150)
-        self.combo_x.set("tiempo")
+        self.combo_x = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150,
+                                       command=self._on_param_changed)
+        self.combo_x.set(self.plot_x_name)
         self.combo_x.pack(side="left", padx=(0, 12))
 
         ctk.CTkLabel(self.plot_controls, text="Y:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
-        self.combo_y = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150)
-        self.combo_y.set("angulo")
+        self.combo_y = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150,
+                                       command=self._on_param_changed)
+        self.combo_y.set(self.plot_y_name)
         self.combo_y.pack(side="left", padx=(0, 12))
 
-        ctk.CTkButton(self.plot_controls, text="Graficar", command=self._on_plot, width=100).pack(side="left", padx=(6, 0))
+        self.live_switch = ctk.CTkSwitch(self.plot_controls, text="Live", command=self._toggle_live)
+        self.live_switch.select()  # por defecto ON cuando se muestre la sección; se aplicará en _on_submit
+        self.live_switch.pack(side="left", padx=(8, 0))
 
         # Lienzo de la gráfica
         self.plot_canvas_container = ctk.CTkFrame(self.plot_section, fg_color="transparent")
         self.plot_canvas_container.pack(fill="both", expand=True)
 
-        # Estado matplotlib
-        self._mpl_canvas = None
-        self._mpl_fig = None
-        self._mpl_ax = None
         if not _HAS_MPL:
             warn = ctk.CTkLabel(self.plot_canvas_container, text="Matplotlib no está disponible. Instálalo para ver gráficas.", text_color="#ff6666")
             warn.pack(pady=8, padx=8, anchor="w")
 
-    # ===================== Helpers de Serial (igual que tu código) =====================
+    # ===================== Helpers de Serial =====================
     def _is_serial_ready(self) -> bool:
         try:
             si = self.serial_interface
@@ -528,7 +540,6 @@ class BendingPage(ctk.CTkFrame):
             if hasattr(self, "mode_value_label"):
                 self.mode_value_label.configure(text=str(mode_val))
             if hasattr(self, "angle_value_label"):
-                # Mostrar con 6 decimales si es float
                 if isinstance(angle_val, float):
                     self.angle_value_label.configure(text=f"{angle_val:.6f}")
                 else:
@@ -568,6 +579,13 @@ class BendingPage(ctk.CTkFrame):
             self.plot_section.pack(fill="both", expand=True, pady=(8, 10))
 
         self._start_reader()
+
+        # Activa live plotting por defecto si hay Matplotlib
+        if _HAS_MPL:
+            self.live_enabled = True
+            self.live_switch.select()
+            self._ensure_plot_initialized()
+            self._schedule_live_tick()
 
     def _send_submit_command(self, cmd_str: str):
         try:
@@ -614,12 +632,13 @@ class BendingPage(ctk.CTkFrame):
             # 3) Exportar CSV
             self._export_csv()
 
-            # 4) Reset básico de logging (conserva data_rows si quieres reexportar)
+            # 4) Reset básico de logging
             with self.log_lock:
                 self.logging_active = False
                 self.log_start_ts = None
-                # Si deseas limpiar después de exportar, descomenta:
-                # self.data_rows = []
+
+            # Puedes decidir si quieres desactivar live al hacer STOP:
+            # self._stop_live_plot()
 
             self._set_status("CSV exportado.")
         except Exception as e:
@@ -668,93 +687,134 @@ class BendingPage(ctk.CTkFrame):
             self._set_status(f"No se pudo guardar CSV: {e}")
             return
 
-    # ===================== Gráfica =====================
-    def _on_plot(self):
-        if not _HAS_MPL:
-            self._set_status("Matplotlib no disponible para graficar.")
-            return
-
-        # Mapea los nombres visibles a índice de columna en self.data_rows
-        # data_rows: [time, velocity, angle, resistance]
-        idx_map = {
-            "tiempo": 0,
-            "velocidad": 1,
-            "angulo": 2,
-            "resistencia": 3
-        }
-
-        x_name = self.combo_x.get().strip().lower()
-        y_name = self.combo_y.get().strip().lower()
-
-        if x_name not in idx_map or y_name not in idx_map:
-            self._set_status("Parámetros inválidos para graficar.")
-            return
-        if x_name == y_name:
+    # ===================== Gráfica (en vivo) =====================
+    def _on_param_changed(self, _value=None):
+        """Cuando cambian X/Y; reconfigura ejes y fuerza redibujo."""
+        self.plot_x_name = self.combo_x.get().strip().lower()
+        self.plot_y_name = self.combo_y.get().strip().lower()
+        if self.plot_x_name == self.plot_y_name:
             self._set_status("X y Y no pueden ser el mismo parámetro.")
+            return
+        if _HAS_MPL:
+            self._ensure_plot_initialized(force_new_axes=True)  # reinicia títulos/labels
+            # Redibuja en el próximo tick; si live off, fuerza un tick inmediato:
+            if not self.live_enabled:
+                self._live_plot_tick()
+
+    def _toggle_live(self):
+        self.live_enabled = bool(self.live_switch.get())
+        if self.live_enabled:
+            if _HAS_MPL:
+                self._ensure_plot_initialized()
+                self._schedule_live_tick()
+            self._set_status("Live ON.")
+        else:
+            self._stop_live_plot()
+            self._set_status("Live OFF.")
+
+    def _ensure_plot_initialized(self, force_new_axes: bool = False):
+        if not _HAS_MPL:
+            return
+        # Crear canvas si no existe
+        if self._mpl_canvas is None or force_new_axes:
+            # limpia contenedor
+            for w in self.plot_canvas_container.winfo_children():
+                w.destroy()
+
+            fig = Figure(figsize=(6, 3.6), dpi=100)
+            ax = fig.add_subplot(111)
+
+            # línea vacía
+            (line,) = ax.plot([], [])  # una línea sin estilos para velocidad
+            ax.grid(True, linestyle="--", alpha=0.3)
+
+            # Etiquetas
+            units = {"tiempo": "s", "velocidad": "rpm", "angulo": "°", "resistencia": "Ω"}
+            def label(n):
+                base = n.capitalize()
+                u = units.get(n, "")
+                return f"{base} ({u})" if u else base
+
+            ax.set_xlabel(label(self.plot_x_name))
+            ax.set_ylabel(label(self.plot_y_name))
+            ax.set_title(f"{label(self.plot_y_name)} vs {label(self.plot_x_name)}")
+
+            canvas = FigureCanvasTkAgg(fig, master=self.plot_canvas_container)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=6)
+
+            # Guarda refs
+            self._mpl_canvas = canvas
+            self._mpl_fig = fig
+            self._mpl_ax = ax
+            self._mpl_line = line
+
+        else:
+            # Reetiqueta si solo cambió X/Y
+            ax = self._mpl_ax
+            units = {"tiempo": "s", "velocidad": "rpm", "angulo": "°", "resistencia": "Ω"}
+            def label(n):
+                base = n.capitalize()
+                u = units.get(n, "")
+                return f"{base} ({u})" if u else base
+            ax.set_xlabel(label(self.plot_x_name))
+            ax.set_ylabel(label(self.plot_y_name))
+            ax.set_title(f"{label(self.plot_y_name)} vs {label(self.plot_x_name)}")
+
+    def _schedule_live_tick(self):
+        # Programa el siguiente tick si live ON
+        if self.live_enabled and self.live_job is None:
+            self.live_job = self.after(self.LIVE_REFRESH_MS, self._live_plot_tick)
+
+    def _stop_live_plot(self):
+        if self.live_job is not None:
+            try:
+                self.after_cancel(self.live_job)
+            except Exception:
+                pass
+            self.live_job = None
+
+    def _live_plot_tick(self):
+        self.live_job = None  # este tick ya se está ejecutando
+        if not self.live_enabled or not _HAS_MPL:
+            return
+
+        # data_rows: [time, velocity, angle, resistance]
+        idx_map = {"tiempo": 0, "velocidad": 1, "angulo": 2, "resistencia": 3}
+        x_name = self.plot_x_name
+        y_name = self.plot_y_name
+
+        if x_name == y_name or (x_name not in idx_map) or (y_name not in idx_map):
+            self._schedule_live_tick()
             return
 
         with self.log_lock:
             rows = list(self.data_rows)
 
-        if len(rows) < 2:
-            self._set_status("No hay suficientes datos para graficar (mínimo 2 muestras).")
-            return
-
-        xi, yi = idx_map[x_name], idx_map[y_name]
-        try:
-            x = [r[xi] for r in rows]
-            y = [r[yi] for r in rows]
-        except Exception:
-            self._set_status("Error preparando datos para la gráfica.")
-            return
-
-        # Render de la figura
-        self._draw_plot(x, y, x_name, y_name)
-
-    def _draw_plot(self, x, y, x_name: str, y_name: str):
-        # Limpia canvas anterior si existe
-        if self._mpl_canvas is not None:
+        if len(rows) >= 2:
+            xi, yi = idx_map[x_name], idx_map[y_name]
             try:
-                self._mpl_canvas.get_tk_widget().destroy()
+                x = [r[xi] for r in rows]
+                y = [r[yi] for r in rows]
             except Exception:
-                pass
-            self._mpl_canvas = None
-            self._mpl_ax = None
-            self._mpl_fig = None
+                x, y = [], []
+        else:
+            x, y = [], []
 
-        # Crea nueva figura
-        fig = Figure(figsize=(6, 3.6), dpi=100)
-        ax = fig.add_subplot(111)
-        ax.plot(x, y)  # línea simple, sin estilos adicionales
-        ax.grid(True, linestyle="--", alpha=0.3)
+        # Asegura canvas
+        self._ensure_plot_initialized()
 
-        # Etiquetas
-        units = {
-            "tiempo": "s",
-            "velocidad": "rpm",
-            "angulo": "°",
-            "resistencia": "Ω"
-        }
-        def label(n):
-            base = n.capitalize()
-            u = units.get(n, "")
-            return f"{base} ({u})" if u else base
+        # Actualiza datos de la línea
+        if self._mpl_line is not None:
+            self._mpl_line.set_data(x, y)
+            # Recalcula límites si hay datos
+            if len(x) > 0 and len(y) > 0:
+                self._mpl_ax.relim()
+                self._mpl_ax.autoscale_view()
+            self._mpl_canvas.draw_idle()
 
-        ax.set_xlabel(label(x_name))
-        ax.set_ylabel(label(y_name))
-        ax.set_title(f"{label(y_name)} vs {label(x_name)}")
-
-        # Inserta en Tk
-        canvas = FigureCanvasTkAgg(fig, master=self.plot_canvas_container)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=6)
-
-        # Guarda referencias
-        self._mpl_canvas = canvas
-        self._mpl_fig = fig
-        self._mpl_ax = ax
-
-        self._set_status("Gráfica actualizada.")
+        # Reprograma siguiente tick
+        self._schedule_live_tick()
 
     # ===================== UI de lectura =====================
     def _build_read_section(self):
@@ -788,6 +848,7 @@ class BendingPage(ctk.CTkFrame):
     def _go_back(self):
         if self.listening:
             self.stop_event.set()
+        self._stop_live_plot()
         if callable(self.on_back):
             self.on_back()
 
@@ -829,22 +890,18 @@ class BendingPage(ctk.CTkFrame):
                 self.inputs[key].insert(0, str(value))
 
         if modo == 1:
-            # angle_const, speed_const
             if "angle" in cfg: set_entry("angle_const", cfg["angle"])
             if "speed" in cfg: set_entry("speed_const", cfg["speed"])
-
         elif modo == 2:
             if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
             if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
             if "step_angle" in cfg: set_entry("angle_step", cfg["step_angle"])
             if "velocity" in cfg:   set_entry("speed_const", cfg["velocity"])
-
         elif modo == 3:
             if "angle" in cfg:      set_entry("angle_const", cfg["angle"])
             if "init_vel" in cfg:   set_entry("speed_init", cfg["init_vel"])
             if "final_vel" in cfg:  set_entry("speed_final", cfg["final_vel"])
             if "step_vel" in cfg:   set_entry("speed_step", cfg["step_vel"])
-
         elif modo == 4:
             if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
             if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
@@ -863,7 +920,6 @@ class BendingPage(ctk.CTkFrame):
             self._set_status("Corrige los errores antes de guardar el preset.")
             return
 
-        # Convertir cfg de validación -> llaves de firmware (como ya haces en _compose_command_json)
         m = cfg["modo"]
         if m == 1:
             store = {"modo": 1, "angle": cfg["angle"], "speed": cfg["speed"]}
@@ -894,13 +950,11 @@ class BendingPage(ctk.CTkFrame):
                 "step_vel": cfg["speed_step"],
             }
 
-        # UI simple para pedir nombre (sin ventana extra):
         def _commit():
             name = entry.get().strip()
             prompt.destroy()
             try:
                 if presetsBending.is_builtin(name):
-                    # No permitir sobreescribir los BUILTIN
                     self._set_status("No se puede sobreescribir un preset base. Usa otro nombre.")
                     return
                 presetsBending.save_user_preset(name, store)
@@ -920,7 +974,6 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkButton(btns, text="Guardar", command=_commit).pack(side="left", padx=8)
         ctk.CTkButton(btns, text="Cancelar", fg_color="#777", command=prompt.destroy).pack(side="left", padx=8)
 
-        # centrar aprox
         prompt.geometry("+200+150")
         entry.focus_set()
 
