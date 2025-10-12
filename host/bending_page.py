@@ -4,6 +4,17 @@ import threading
 import time
 import json
 import ast
+import csv
+from datetime import datetime
+from tkinter import filedialog  # diálogo para guardar CSV
+
+# === Matplotlib embebido ===
+try:
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    _HAS_MPL = True
+except Exception:
+    _HAS_MPL = False
 
 from serial_interface import SerialInterface
 
@@ -21,6 +32,13 @@ class BendingPage(ctk.CTkFrame):
         self.reader_thread = None
         self.stop_event = threading.Event()
         self.listening = False
+
+        # ===== Logging/mediciones =====
+        self.logging_active = False        # se activa tras la PRIMERA muestra válida recibida
+        self.log_start_ts = None           # epoch relativo inicio (perf_counter)
+        self.data_rows = []                # filas [t_rel, velocity, angle, resistance]
+        self.expected_modo = 1             # modo esperado según selección UI
+        self.log_lock = threading.Lock()   # acceso thread-safe al buffer
 
         # ===== Layout base =====
         self.grid_rowconfigure(1, weight=1)
@@ -131,9 +149,11 @@ class BendingPage(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(submit_row, text="", text_color="#999999")
         self.status_label.pack(side="right", padx=8)
 
-        ctk.CTkButton(submit_row, text="Submit", command=self._on_submit, width=120).pack(side="left", pady=4, padx=(0, 6))
-        ctk.CTkButton(submit_row, text="Pause", command=self._on_pause, width=100, fg_color="#888").pack(side="left", pady=4, padx=6)
-        ctk.CTkButton(submit_row, text="Stop", command=self._on_stop, width=100, fg_color="#b33").pack(side="left", pady=4, padx=6)
+        ctk.CTkButton(submit_row, text="Submit", command=self._on_submit, width=110).pack(side="left", pady=4, padx=(0, 6))
+        ctk.CTkButton(submit_row, text="Pause", command=self._on_pause, width=90, fg_color="#888").pack(side="left", pady=4, padx=6)
+        ctk.CTkButton(submit_row, text="Stop", command=self._on_stop, width=90, fg_color="#b33").pack(side="left", pady=4, padx=6)
+        # Nuevo: Export CSV independiente (no detiene)
+        ctk.CTkButton(submit_row, text="Export CSV", command=self._on_export_csv, width=110, fg_color="#2c7a7b").pack(side="left", pady=4, padx=6)
 
         # ---- Barra inferior ----
         bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -141,6 +161,38 @@ class BendingPage(ctk.CTkFrame):
         bottom_bar.grid_columnconfigure(0, weight=1)
         back_btn = ctk.CTkButton(bottom_bar, text="⟵ Regresar", command=self._go_back, width=140, fg_color="#444", text_color="white")
         back_btn.pack(side="left")
+
+        # ====== Sección de Gráfica ======
+        # Contenedor visible después de que exista la sección de lectura
+        self.plot_section = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        # Combos X/Y y botón
+        self.plot_controls = ctk.CTkFrame(self.plot_section, fg_color="transparent")
+        self.plot_controls.pack(fill="x", pady=(10, 6))
+
+        ctk.CTkLabel(self.plot_controls, text="X:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
+        self.param_options = ["tiempo", "resistencia", "angulo", "velocidad"]
+        self.combo_x = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150)
+        self.combo_x.set("tiempo")
+        self.combo_x.pack(side="left", padx=(0, 12))
+
+        ctk.CTkLabel(self.plot_controls, text="Y:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
+        self.combo_y = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150)
+        self.combo_y.set("angulo")
+        self.combo_y.pack(side="left", padx=(0, 12))
+
+        ctk.CTkButton(self.plot_controls, text="Graficar", command=self._on_plot, width=100).pack(side="left", padx=(6, 0))
+
+        # Lienzo de la gráfica
+        self.plot_canvas_container = ctk.CTkFrame(self.plot_section, fg_color="transparent")
+        self.plot_canvas_container.pack(fill="both", expand=True)
+
+        # Estado matplotlib
+        self._mpl_canvas = None
+        self._mpl_fig = None
+        self._mpl_ax = None
+        if not _HAS_MPL:
+            warn = ctk.CTkLabel(self.plot_canvas_container, text="Matplotlib no está disponible. Instálalo para ver gráficas.", text_color="#ff6666")
+            warn.pack(pady=8, padx=8, anchor="w")
 
     # ===================== Helpers de Serial (igual que tu código) =====================
     def _is_serial_ready(self) -> bool:
@@ -372,10 +424,16 @@ class BendingPage(ctk.CTkFrame):
     # ----- Parser RX -----
     @staticmethod
     def _parse_modo_velocity_angle(s: str):
+        """
+        Espera algo tipo: ['modo', 1, 'velocity', 7, 'angle', 0.1754212]
+        Acepta 'velocity' y 'angle' como int/float (angle suele ser float).
+        Devuelve (modo:int, velocity:float, angle:float) o (None,None,None).
+        """
         try:
             lst = ast.literal_eval(s)
             if not isinstance(lst, list):
                 return None, None, None
+
             d = {}
             i = 0
             while i + 1 < len(lst):
@@ -383,31 +441,36 @@ class BendingPage(ctk.CTkFrame):
                 v = lst[i + 1]
                 if isinstance(k, str):
                     key = k.strip().lower()
-                    try:
-                        val = int(v)
-                    except Exception:
-                        val = v
-                    d[key] = val
+                    d[key] = v
                 i += 2
+
             modo = d.get("modo")
             velocity = d.get("velocity", d.get("velocidad"))
             angle = d.get("angle", d.get("angulo"))
-            for name, val in (("modo", modo), ("velocity", velocity), ("angle", angle)):
-                if val is None:
-                    continue
-                if not isinstance(val, int):
+
+            # Normaliza tipos
+            try:
+                modo = int(modo)
+            except Exception:
+                return None, None, None
+
+            def to_float(x):
+                if isinstance(x, (int, float)):
+                    return float(x)
+                if isinstance(x, str):
+                    x = x.strip()
                     try:
-                        if isinstance(val, str) and val.strip().isdigit():
-                            if name == "modo":
-                                modo = int(val)
-                            elif name == "velocity":
-                                velocity = int(val)
-                            elif name == "angle":
-                                angle = int(val)
-                        else:
-                            return None, None, None
+                        return float(x)
                     except Exception:
-                        return None, None, None
+                        return None
+                return None
+
+            velocity = to_float(velocity)
+            angle = to_float(angle)
+
+            if (velocity is None) or (angle is None):
+                return None, None, None
+
             return modo, velocity, angle
         except Exception:
             return None, None, None
@@ -436,7 +499,18 @@ class BendingPage(ctk.CTkFrame):
                     print(f"[RX] {raw}")
                     modo, vel, ang = self._parse_modo_velocity_angle(raw)
                     if (modo is not None) and (vel is not None) and (ang is not None):
-                        self._update_readings(modo, ang, vel)
+                        # Si el modo coincide, registramos y actualizamos UI
+                        if modo == self.expected_modo:
+                            with self.log_lock:
+                                now = time.perf_counter()
+                                if not self.logging_active:
+                                    self.logging_active = True
+                                    self.log_start_ts = now
+                                t_rel = now - self.log_start_ts
+                                resistencia = 0.0  # placeholder para futuro
+                                self.data_rows.append([t_rel, float(vel), float(ang), resistencia])
+
+                            self._update_readings(modo, ang, vel)
                     time.sleep(0.003)
             except Exception as e:
                 self._set_status(f"Error lector: {e}")
@@ -449,14 +523,25 @@ class BendingPage(ctk.CTkFrame):
     def _set_status(self, text: str):
         self.after(0, lambda: self.status_label.configure(text=text))
 
-    def _update_readings(self, mode_val: int, angle_val: int, speed_val: int):
+    def _update_readings(self, mode_val: int, angle_val: float, speed_val: float):
         def _do():
             if hasattr(self, "mode_value_label"):
                 self.mode_value_label.configure(text=str(mode_val))
             if hasattr(self, "angle_value_label"):
-                self.angle_value_label.configure(text=str(angle_val))
+                # Mostrar con 6 decimales si es float
+                if isinstance(angle_val, float):
+                    self.angle_value_label.configure(text=f"{angle_val:.6f}")
+                else:
+                    self.angle_value_label.configure(text=str(angle_val))
             if hasattr(self, "speed_value_label"):
-                self.speed_value_label.configure(text=str(speed_val))
+                if isinstance(speed_val, float) and not float(speed_val).is_integer():
+                    self.speed_value_label.configure(text=f"{speed_val:.6f}")
+                else:
+                    self.speed_value_label.configure(text=str(int(speed_val)))
+            if hasattr(self, "samples_label"):
+                with self.log_lock:
+                    n = len(self.data_rows)
+                self.samples_label.configure(text=f"Muestras: {n}")
         self.after(0, _do)
 
     # ===================== Acciones =====================
@@ -465,11 +550,23 @@ class BendingPage(ctk.CTkFrame):
         ok, cfg = self._validate(mode)
         if not ok:
             return
+
+        # Configura modo esperado y resetea el buffer de mediciones
+        self.expected_modo = self._mode_number(mode)
+        with self.log_lock:
+            self.logging_active = False
+            self.log_start_ts = None
+            self.data_rows = []
+
         cmd_str = self._compose_command_json(cfg)
         self._send_submit_command(cmd_str)
         if not hasattr(self, "read_section_shown") or not self.read_section_shown:
             self._build_read_section()
             self.read_section_shown = True
+
+            # Mostrar la sección de gráfica debajo de la lectura
+            self.plot_section.pack(fill="both", expand=True, pady=(8, 10))
+
         self._start_reader()
 
     def _send_submit_command(self, cmd_str: str):
@@ -500,16 +597,166 @@ class BendingPage(ctk.CTkFrame):
 
     def _on_stop(self):
         try:
-            if not self._ensure_serial_ready():
-                return
-            if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
-                self.serial_interface.send_command("STOP")
-            else:
-                self.serial_interface.ser.write(b"STOP\n")
-            self._set_status("STOP enviado.")
-        except Exception as e:
-            self._set_status(f"Error STOP: {e}")
+            # 1) Enviar STOP al firmware
+            if self._ensure_serial_ready():
+                if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
+                    self.serial_interface.send_command("STOP")
+                else:
+                    self.serial_interface.ser.write(b"STOP\n")
+            self._set_status("STOP enviado. Exportando CSV...")
 
+            # 2) Detener hilo lector
+            if self.listening:
+                self.stop_event.set()
+                if self.reader_thread and self.reader_thread.is_alive():
+                    self.reader_thread.join(timeout=0.5)
+
+            # 3) Exportar CSV
+            self._export_csv()
+
+            # 4) Reset básico de logging (conserva data_rows si quieres reexportar)
+            with self.log_lock:
+                self.logging_active = False
+                self.log_start_ts = None
+                # Si deseas limpiar después de exportar, descomenta:
+                # self.data_rows = []
+
+            self._set_status("CSV exportado.")
+        except Exception as e:
+            self._set_status(f"Error STOP/CSV: {e}")
+
+    def _on_export_csv(self):
+        """Exportación manual sin detener el lector."""
+        try:
+            self._export_csv()
+            self._set_status("CSV exportado (manual).")
+        except Exception as e:
+            self._set_status(f"Error al exportar CSV: {e}")
+
+    def _export_csv(self):
+        """
+        Guarda self.data_rows a CSV con cabecera: time,velocity,angle,resistance.
+        Pregunta ruta con filedialog. Si se cancela, usa nombre por defecto en cwd.
+        """
+        with self.log_lock:
+            rows = list(self.data_rows)
+
+        if not rows:
+            self._set_status("No hay datos para exportar.")
+            return
+
+        default_name = f"bending_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        try:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv")],
+                initialfile=default_name,
+                title="Guardar mediciones como CSV"
+            )
+        except Exception:
+            path = ""
+
+        if not path:
+            path = default_name
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["time", "velocity", "angle", "resistance"])
+                writer.writerows(rows)
+        except Exception as e:
+            self._set_status(f"No se pudo guardar CSV: {e}")
+            return
+
+    # ===================== Gráfica =====================
+    def _on_plot(self):
+        if not _HAS_MPL:
+            self._set_status("Matplotlib no disponible para graficar.")
+            return
+
+        # Mapea los nombres visibles a índice de columna en self.data_rows
+        # data_rows: [time, velocity, angle, resistance]
+        idx_map = {
+            "tiempo": 0,
+            "velocidad": 1,
+            "angulo": 2,
+            "resistencia": 3
+        }
+
+        x_name = self.combo_x.get().strip().lower()
+        y_name = self.combo_y.get().strip().lower()
+
+        if x_name not in idx_map or y_name not in idx_map:
+            self._set_status("Parámetros inválidos para graficar.")
+            return
+        if x_name == y_name:
+            self._set_status("X y Y no pueden ser el mismo parámetro.")
+            return
+
+        with self.log_lock:
+            rows = list(self.data_rows)
+
+        if len(rows) < 2:
+            self._set_status("No hay suficientes datos para graficar (mínimo 2 muestras).")
+            return
+
+        xi, yi = idx_map[x_name], idx_map[y_name]
+        try:
+            x = [r[xi] for r in rows]
+            y = [r[yi] for r in rows]
+        except Exception:
+            self._set_status("Error preparando datos para la gráfica.")
+            return
+
+        # Render de la figura
+        self._draw_plot(x, y, x_name, y_name)
+
+    def _draw_plot(self, x, y, x_name: str, y_name: str):
+        # Limpia canvas anterior si existe
+        if self._mpl_canvas is not None:
+            try:
+                self._mpl_canvas.get_tk_widget().destroy()
+            except Exception:
+                pass
+            self._mpl_canvas = None
+            self._mpl_ax = None
+            self._mpl_fig = None
+
+        # Crea nueva figura
+        fig = Figure(figsize=(6, 3.6), dpi=100)
+        ax = fig.add_subplot(111)
+        ax.plot(x, y)  # línea simple, sin estilos adicionales
+        ax.grid(True, linestyle="--", alpha=0.3)
+
+        # Etiquetas
+        units = {
+            "tiempo": "s",
+            "velocidad": "rpm",
+            "angulo": "°",
+            "resistencia": "Ω"
+        }
+        def label(n):
+            base = n.capitalize()
+            u = units.get(n, "")
+            return f"{base} ({u})" if u else base
+
+        ax.set_xlabel(label(x_name))
+        ax.set_ylabel(label(y_name))
+        ax.set_title(f"{label(y_name)} vs {label(x_name)}")
+
+        # Inserta en Tk
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_canvas_container)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=6)
+
+        # Guarda referencias
+        self._mpl_canvas = canvas
+        self._mpl_fig = fig
+        self._mpl_ax = ax
+
+        self._set_status("Gráfica actualizada.")
+
+    # ===================== UI de lectura =====================
     def _build_read_section(self):
         self.read_frame.pack(fill="x", pady=(12, 6))
         ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(anchor="w", pady=(0, 8))
@@ -533,6 +780,10 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkLabel(right, text="Velocidad (rpm)", font=("Helvetica", 14, "bold")).pack(anchor="w")
         self.speed_value_label = ctk.CTkLabel(right, text="--", font=("Helvetica", 22))
         self.speed_value_label.pack(anchor="w", pady=(4, 6))
+
+        # (Opcional) contador de muestras
+        self.samples_label = ctk.CTkLabel(self.read_frame, text="Muestras: 0", font=("Helvetica", 12))
+        self.samples_label.pack(anchor="w", pady=(6, 0))
 
     def _go_back(self):
         if self.listening:
