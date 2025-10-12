@@ -63,7 +63,7 @@ def _parse_config(s: str) -> dict:
     return _manual_parse_dict(s_norm)
 
 # --- Estados ---
-STATE_IDLE, STATE_RUN, STATE_PAUSED = 0, 1, 2
+STATE_IDLE, STATE_RUN, STATE_PAUSED, STATE_CALIBRATING = 0, 1, 2, 3
 INTERVAL_MS = 150
 
 # --- Utilidad clave/valor con alias ---
@@ -233,6 +233,20 @@ def main():
                     modo, cfg, printed_ready = None, {}, False
                 elif cmd == "PAUSE":
                     sys.stdout.write("PAUSE\n")
+            time.sleep(0.01)
+            
+        elif state == STATE_CALIBRATING:
+            if line:
+                cmd = _classify_command(line)
+                if cmd == "STOP":
+                    sys.stdout.write("STOP\n")
+                    state = STATE_IDLE
+                    modo, cfg, printed_ready = None, {}, False
+                elif cmd == "PAUSE":
+                    sys.stdout.write("PAUSE\n")
+                else:
+                    sys.stdout.write("CALIBRATING\n")
+                    
             time.sleep(0.01)
 
 if __name__ == "__main__":
