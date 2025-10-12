@@ -2,10 +2,13 @@
 import customtkinter as ctk
 import threading
 import time
-import json  # para enviar dict JSON
-import ast   # <<< nuevo: para parsear la lista recibida de forma segura
+import json
+import ast
 
 from serial_interface import SerialInterface
+
+# === presetsBending ===
+import presetsBending  # nuevo: importamos tus presetsBending .py
 
 
 class BendingPage(ctk.CTkFrame):
@@ -20,7 +23,7 @@ class BendingPage(ctk.CTkFrame):
         self.listening = False
 
         # ===== Layout base =====
-        self.grid_rowconfigure(1, weight=1)   # scroll area
+        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         # ---- Título ----
@@ -31,7 +34,7 @@ class BendingPage(ctk.CTkFrame):
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 10))
 
-        # Contenedor del formulario dentro del scroll
+        # Contenedor del formulario
         self.form = ctk.CTkFrame(self.scroll, fg_color="transparent")
         self.form.pack(fill="x", pady=8)
 
@@ -52,18 +55,37 @@ class BendingPage(ctk.CTkFrame):
         }
 
         self.mode_combo = ctk.CTkComboBox(
-            mode_row,
-            values=self.mode_values,
-            command=self._on_mode_change,
-            width=180,
+            mode_row, values=self.mode_values, command=self._on_mode_change, width=180
         )
         self.mode_combo.set("Mode 1")
         self.mode_combo.pack(side="left")
 
+        # === presetsBending: UI ===
+        preset_row = ctk.CTkFrame(self.form, fg_color="transparent")
+        preset_row.pack(fill="x", pady=(6, 6))
+
+        ctk.CTkLabel(preset_row, text="Preset:", font=("Helvetica", 14, "bold")).pack(
+            side="left", padx=(0, 10)
+        )
+        self.preset_combo = ctk.CTkComboBox(preset_row, values=[], width=260)
+        self.preset_combo.pack(side="left")
+
+        ctk.CTkButton(preset_row, text="Aplicar", width=90, command=self._apply_selected_preset).pack(
+            side="left", padx=(8, 0)
+        )
+        ctk.CTkButton(preset_row, text="Guardar actual…", width=130, command=self._save_current_as_preset).pack(
+            side="left", padx=8
+        )
+        ctk.CTkButton(preset_row, text="Eliminar", width=100, fg_color="#b33", command=self._delete_selected_preset).pack(
+            side="left", padx=8
+        )
+
+        # Cargar lista de presetsBending
+        self._reload_presetsBending()
+
         # Descripción dinámica
         desc_frame = ctk.CTkFrame(self.form, fg_color="transparent")
         desc_frame.pack(fill="x", pady=(8, 12))
-
         self.mode_desc = ctk.CTkLabel(
             desc_frame,
             text=self.mode_texts["Mode 1"],
@@ -83,7 +105,6 @@ class BendingPage(ctk.CTkFrame):
         self.left_col.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.right_col.pack(side="left", fill="x", expand=True, padx=(8, 0))
 
-        # Títulos de columnas
         ctk.CTkLabel(self.left_col, text="Ángulo (°)", font=("Helvetica", 15, "bold")).pack(
             anchor="w", pady=(0, 6)
         )
@@ -91,23 +112,20 @@ class BendingPage(ctk.CTkFrame):
             anchor="w", pady=(0, 6)
         )
 
-        # Diccionarios para widgets e inputs visibles según modo
-        self.inputs = {}   # nombre_campo -> widget
-        self.errors = {}   # nombre_campo -> label de error
+        self.inputs = {}
+        self.errors = {}
 
-        # Dibuja campos iniciales para Mode 1
         self._build_mode_specific_fields("Mode 1")
 
-        # — Sección de Restricciones —
+        # — Sección Restricciones —
         self.rules = ctk.CTkFrame(self.form, fg_color="transparent")
         self.rules.pack(fill="x", pady=(8, 12))
         self._render_rules_text()
 
-        # — Sección Lectura (aparece después de Submit válido) —
+        # — Sección Lectura (aparece tras Submit válido) —
         self.read_frame = ctk.CTkFrame(self.form, fg_color="transparent")
-        # No se empaca todavía; se empaca después del primer submit válido
 
-        # — Botonera Submit / Pause / Stop —
+        # — Botonera —
         submit_row = ctk.CTkFrame(self.form, fg_color="transparent")
         submit_row.pack(fill="x", pady=(6, 8))
         self.status_label = ctk.CTkLabel(submit_row, text="", text_color="#999999")
@@ -117,24 +135,15 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkButton(submit_row, text="Pause", command=self._on_pause, width=100, fg_color="#888").pack(side="left", pady=4, padx=6)
         ctk.CTkButton(submit_row, text="Stop", command=self._on_stop, width=100, fg_color="#b33").pack(side="left", pady=4, padx=6)
 
-        # ---- Barra inferior con botón Regresar (siempre visible) ----
+        # ---- Barra inferior ----
         bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
         bottom_bar.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 18))
         bottom_bar.grid_columnconfigure(0, weight=1)
-
-        back_btn = ctk.CTkButton(
-            bottom_bar,
-            text="⟵ Regresar",
-            command=self._go_back,
-            width=140,
-            fg_color="#444",
-            text_color="white",
-        )
+        back_btn = ctk.CTkButton(bottom_bar, text="⟵ Regresar", command=self._go_back, width=140, fg_color="#444", text_color="white")
         back_btn.pack(side="left")
 
-    # ===================== Helpers de Serial =====================
+    # ===================== Helpers de Serial (igual que tu código) =====================
     def _is_serial_ready(self) -> bool:
-        """Devuelve True si hay self.serial_interface.ser usable."""
         try:
             si = self.serial_interface
             if si is None:
@@ -145,18 +154,12 @@ class BendingPage(ctk.CTkFrame):
             return False
 
     def _ensure_serial_ready(self) -> bool:
-        """
-        Si no hay serial, intenta conectarse si existe .connect(port, baudrate).
-        Devuelve True si al terminar hay self.serial_interface.ser, si no False.
-        """
         if self._is_serial_ready():
             return True
-
         si = self.serial_interface
         if si is None:
             self._set_status("SerialInterface no inyectado.")
             return False
-
         connect = getattr(si, "connect", None)
         if callable(connect):
             try:
@@ -177,12 +180,10 @@ class BendingPage(ctk.CTkFrame):
             except Exception as e:
                 self._set_status(f"Fallo al conectar: {e}")
                 return False
-
         self._set_status("Serial no disponible (falta conexión).")
         return False
 
     # ===================== Modo dinámico =====================
-
     def _on_mode_change(self, choice: str):
         self.mode_desc.configure(text=self.mode_texts.get(choice, ""))
         self._build_mode_specific_fields(choice)
@@ -208,12 +209,12 @@ class BendingPage(ctk.CTkFrame):
             w.destroy()
         self._reset_inputs()
 
-        # ---------- Ángulo ----------
-        if mode in ("Mode 1", "Mode 3"):  # Ángulo constante
+        # Ángulo
+        if mode in ("Mode 1", "Mode 3"):
             ang_cte, err = self._add_labeled_entry(self.left_col, "Ángulo:", "0–90")
             self.inputs["angle_const"] = ang_cte
             self.errors["angle_const"] = err
-        else:  # Mode 2 y 4
+        else:
             ang_i, err_i = self._add_labeled_entry(self.left_col, "Ángulo Inicial:", "0–90")
             ang_f, err_f = self._add_labeled_entry(self.left_col, "Ángulo Final:", "0–90")
             ang_s, err_s = self._add_labeled_entry(self.left_col, "Step (Ángulo):", "0–45")
@@ -224,7 +225,7 @@ class BendingPage(ctk.CTkFrame):
             self.errors["angle_final"] = err_f
             self.errors["angle_step"] = err_s
 
-        # ---------- Velocidad ----------
+        # Velocidad
         if mode in ("Mode 1", "Mode 2"):
             vel_cte, err = self._add_labeled_entry(self.right_col, "Velocidad:", "7–30")
             self.inputs["speed_const"] = vel_cte
@@ -240,15 +241,11 @@ class BendingPage(ctk.CTkFrame):
             self.errors["speed_final"] = err_vf
             self.errors["speed_step"] = err_st
 
-    # ======= Texto de reglas/restricciones =======
-
+    # ======= Texto de reglas =======
     def _render_rules_text(self):
         for w in self.rules.winfo_children():
             w.destroy()
-
-        ctk.CTkLabel(self.rules, text="Restricciones", font=("Helvetica", 14, "bold")).pack(
-            anchor="w", pady=(0, 4)
-        )
+        ctk.CTkLabel(self.rules, text="Restricciones", font=("Helvetica", 14, "bold")).pack(anchor="w", pady=(0, 4))
         rules_txt = (
             "• Ángulo: valores enteros entre 0 y 90.\n"
             "• Ángulo variable: el Ángulo Final no puede ser menor que el Inicial.\n"
@@ -260,7 +257,6 @@ class BendingPage(ctk.CTkFrame):
         ctk.CTkLabel(self.rules, text=rules_txt, justify="left", anchor="w").pack(anchor="w")
 
     # ===================== Validaciones =====================
-
     def _clear_errors(self):
         for lbl in self.errors.values():
             lbl.configure(text="")
@@ -275,10 +271,9 @@ class BendingPage(ctk.CTkFrame):
     def _validate(self, mode: str):
         self._clear_errors()
         ok = True
-        # >>> 'modo' (entero 1..4)
         data = {"modo": self._mode_number(mode)}
 
-        # ---- Ángulo ----
+        # Ángulo
         if "angle_const" in self.inputs:
             v = self._parse_int(self.inputs["angle_const"].get())
             if v is None or not (0 <= v <= 90):
@@ -307,7 +302,7 @@ class BendingPage(ctk.CTkFrame):
                 data["angle_final"] = a_f
                 data["angle_step"] = a_s
 
-        # ---- Velocidad ----
+        # Velocidad
         if "speed_const" in self.inputs:
             v = self._parse_int(self.inputs["speed_const"].get())
             if v is None or not (7 <= v <= 30):
@@ -336,15 +331,11 @@ class BendingPage(ctk.CTkFrame):
         return ok, data
 
     # ===================== Serial helpers =====================
-
     @staticmethod
     def _mode_number(mode_name: str) -> int:
         return {"Mode 1": 1, "Mode 2": 2, "Mode 3": 3, "Mode 4": 4}.get(mode_name, 0)
 
     def _compose_command_json(self, cfg: dict) -> str:
-        """
-        Devuelve un JSON string con 'modo' (español) y las llaves esperadas por el firmware.
-        """
         m = cfg["modo"]
         if m == 1:
             payload = {"modo": 1, "velocity": cfg["speed"], "angle": cfg["angle"]}
@@ -378,19 +369,13 @@ class BendingPage(ctk.CTkFrame):
             payload = {"modo": 0}
         return json.dumps(payload, separators=(",", ":"))
 
-    # ----- NUEVO: parser de líneas estilo ['modo',1,'velocity',20,'angle',1] -----
+    # ----- Parser RX -----
     @staticmethod
     def _parse_modo_velocity_angle(s: str):
-        """
-        Intenta parsear una línea tipo lista Python:
-        ['modo', 1, 'velocity', 20, 'angle', 1]
-        Devuelve (modo:int|None, velocity:int|None, angle:int|None) o (None, None, None) si no se pudo.
-        """
         try:
             lst = ast.literal_eval(s)
             if not isinstance(lst, list):
                 return None, None, None
-            # convertir a pares clave-valor
             d = {}
             i = 0
             while i + 1 < len(lst):
@@ -398,7 +383,6 @@ class BendingPage(ctk.CTkFrame):
                 v = lst[i + 1]
                 if isinstance(k, str):
                     key = k.strip().lower()
-                    # intenta castear a int si aplica
                     try:
                         val = int(v)
                     except Exception:
@@ -408,7 +392,6 @@ class BendingPage(ctk.CTkFrame):
             modo = d.get("modo")
             velocity = d.get("velocity", d.get("velocidad"))
             angle = d.get("angle", d.get("angulo"))
-            # validar ints
             for name, val in (("modo", modo), ("velocity", velocity), ("angle", angle)):
                 if val is None:
                     continue
@@ -430,10 +413,6 @@ class BendingPage(ctk.CTkFrame):
             return None, None, None
 
     def _start_reader(self):
-        """
-        Inicia hilo para leer continuamente lo que llegue por serial.
-        Ahora decodifica ['modo',1,'velocity',20,'angle',1] y actualiza UI.
-        """
         if self.listening:
             return
         self.stop_event.clear()
@@ -441,32 +420,24 @@ class BendingPage(ctk.CTkFrame):
 
         def _worker():
             try:
-                # Verifica/conecta
                 if not self._ensure_serial_ready():
                     self.listening = False
                     return
-
                 ser = getattr(self.serial_interface, "ser", None)
                 if not ser:
                     self._set_status("Serial no disponible.")
                     self.listening = False
                     return
-
                 self._set_status("Leyendo datos...")
                 while not self.stop_event.is_set():
                     raw = self.serial_interface.ser.readline().decode().strip()
                     if not raw:
                         continue
-
-                    # Log opcional
                     print(f"[RX] {raw}")
-
                     modo, vel, ang = self._parse_modo_velocity_angle(raw)
                     if (modo is not None) and (vel is not None) and (ang is not None):
                         self._update_readings(modo, ang, vel)
-
                     time.sleep(0.003)
-
             except Exception as e:
                 self._set_status(f"Error lector: {e}")
             finally:
@@ -476,11 +447,9 @@ class BendingPage(ctk.CTkFrame):
         self.reader_thread.start()
 
     def _set_status(self, text: str):
-        # En el hilo de UI
         self.after(0, lambda: self.status_label.configure(text=text))
 
     def _update_readings(self, mode_val: int, angle_val: int, speed_val: int):
-        # En el hilo de UI
         def _do():
             if hasattr(self, "mode_value_label"):
                 self.mode_value_label.configure(text=str(mode_val))
@@ -491,27 +460,18 @@ class BendingPage(ctk.CTkFrame):
         self.after(0, _do)
 
     # ===================== Acciones =====================
-
     def _on_submit(self):
-        """Handler del botón Submit: valida y delega el envío."""
         mode = self.mode_combo.get()
         ok, cfg = self._validate(mode)
         if not ok:
             return
-
-        # Enviar JSON con 'modo'
         cmd_str = self._compose_command_json(cfg)
         self._send_submit_command(cmd_str)
-
-        # Mostrar sección Lectura si es la primera vez
         if not hasattr(self, "read_section_shown") or not self.read_section_shown:
             self._build_read_section()
             self.read_section_shown = True
-
-        # Arrancar lector
         self._start_reader()
 
-    # Enviar el comando armado por Submit
     def _send_submit_command(self, cmd_str: str):
         try:
             if not self._ensure_serial_ready():
@@ -526,7 +486,6 @@ class BendingPage(ctk.CTkFrame):
             self._set_status(f"Error al enviar: {e}")
             return
 
-    # Botón "Pause": enviar "PAUSE"
     def _on_pause(self):
         try:
             if not self._ensure_serial_ready():
@@ -539,7 +498,6 @@ class BendingPage(ctk.CTkFrame):
         except Exception as e:
             self._set_status(f"Error PAUSE: {e}")
 
-    # Botón "Stop": enviar "STOP"
     def _on_stop(self):
         try:
             if not self._ensure_serial_ready():
@@ -553,14 +511,8 @@ class BendingPage(ctk.CTkFrame):
             self._set_status(f"Error STOP: {e}")
 
     def _build_read_section(self):
-        # Empaqueta la sección "Lectura"
         self.read_frame.pack(fill="x", pady=(12, 6))
-
-        ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(
-            anchor="w", pady=(0, 8)
-        )
-
-        # Fila superior: Modo
+        ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(anchor="w", pady=(0, 8))
         mode_row = ctk.CTkFrame(self.read_frame, fg_color="transparent")
         mode_row.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(mode_row, text="Modo", font=("Helvetica", 14, "bold")).pack(side="left")
@@ -569,8 +521,6 @@ class BendingPage(ctk.CTkFrame):
 
         grid = ctk.CTkFrame(self.read_frame, fg_color="transparent")
         grid.pack(fill="x")
-
-        # 2 columnas: Ángulo / Velocidad
         left = ctk.CTkFrame(grid, fg_color="transparent")
         right = ctk.CTkFrame(grid, fg_color="transparent")
         left.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -585,8 +535,155 @@ class BendingPage(ctk.CTkFrame):
         self.speed_value_label.pack(anchor="w", pady=(4, 6))
 
     def _go_back(self):
-        # Detener lector si está activo
         if self.listening:
             self.stop_event.set()
         if callable(self.on_back):
             self.on_back()
+
+    # ===================== presetsBending: lógica =====================
+    def _reload_presetsBending(self):
+        self._all_presetsBending = presetsBending.load_all()
+        names = list(self._all_presetsBending.keys())
+        if not names:
+            names = [""]
+        self.preset_combo.configure(values=names)
+        if names:
+            self.preset_combo.set(names[0])
+
+    def _apply_selected_preset(self):
+        name = self.preset_combo.get().strip()
+        if not name or name not in self._all_presetsBending:
+            self._set_status("Selecciona un preset válido.")
+            return
+        cfg = self._all_presetsBending[name]
+        self._apply_preset_cfg(cfg)
+        self._set_status(f"Preset aplicado: {name}")
+
+    def _apply_preset_cfg(self, cfg: dict):
+        """
+        Ajusta el modo y rellena los campos visibles con los valores del preset.
+        """
+        modo = int(cfg.get("modo", 0))
+
+        # Cambiar el combo de modo (redibuja campos)
+        name_by_mode = {1: "Mode 1", 2: "Mode 2", 3: "Mode 3", 4: "Mode 4"}.get(modo, "Mode 1")
+        if self.mode_combo.get() != name_by_mode:
+            self.mode_combo.set(name_by_mode)
+            self._on_mode_change(name_by_mode)
+
+        # Ahora, según modo, rellenar
+        def set_entry(key: str, value):
+            if key in self.inputs and hasattr(self.inputs[key], "delete"):
+                self.inputs[key].delete(0, "end")
+                self.inputs[key].insert(0, str(value))
+
+        if modo == 1:
+            # angle_const, speed_const
+            if "angle" in cfg: set_entry("angle_const", cfg["angle"])
+            if "speed" in cfg: set_entry("speed_const", cfg["speed"])
+
+        elif modo == 2:
+            if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
+            if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
+            if "step_angle" in cfg: set_entry("angle_step", cfg["step_angle"])
+            if "velocity" in cfg:   set_entry("speed_const", cfg["velocity"])
+
+        elif modo == 3:
+            if "angle" in cfg:      set_entry("angle_const", cfg["angle"])
+            if "init_vel" in cfg:   set_entry("speed_init", cfg["init_vel"])
+            if "final_vel" in cfg:  set_entry("speed_final", cfg["final_vel"])
+            if "step_vel" in cfg:   set_entry("speed_step", cfg["step_vel"])
+
+        elif modo == 4:
+            if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
+            if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
+            if "step_angle" in cfg: set_entry("angle_step", cfg["step_angle"])
+            if "init_vel" in cfg:   set_entry("speed_init", cfg["init_vel"])
+            if "final_vel" in cfg:  set_entry("speed_final", cfg["final_vel"])
+            if "step_vel" in cfg:   set_entry("speed_step", cfg["step_vel"])
+
+    def _save_current_as_preset(self):
+        """
+        Valida el formulario actual y pide un nombre para guardar como preset (usuario).
+        """
+        mode = self.mode_combo.get()
+        ok, cfg = self._validate(mode)
+        if not ok:
+            self._set_status("Corrige los errores antes de guardar el preset.")
+            return
+
+        # Convertir cfg de validación -> llaves de firmware (como ya haces en _compose_command_json)
+        m = cfg["modo"]
+        if m == 1:
+            store = {"modo": 1, "angle": cfg["angle"], "speed": cfg["speed"]}
+        elif m == 2:
+            store = {
+                "modo": 2,
+                "velocity": cfg["speed"],
+                "init_angle": cfg["angle_init"],
+                "final_angle": cfg["angle_final"],
+                "step_angle": cfg["angle_step"],
+            }
+        elif m == 3:
+            store = {
+                "modo": 3,
+                "angle": cfg["angle"],
+                "init_vel": cfg["speed_init"],
+                "final_vel": cfg["speed_final"],
+                "step_vel": cfg["speed_step"],
+            }
+        else:  # m == 4
+            store = {
+                "modo": 4,
+                "init_angle": cfg["angle_init"],
+                "final_angle": cfg["angle_final"],
+                "step_angle": cfg["angle_step"],
+                "init_vel": cfg["speed_init"],
+                "final_vel": cfg["speed_final"],
+                "step_vel": cfg["speed_step"],
+            }
+
+        # UI simple para pedir nombre (sin ventana extra):
+        def _commit():
+            name = entry.get().strip()
+            prompt.destroy()
+            try:
+                if presetsBending.is_builtin(name):
+                    # No permitir sobreescribir los BUILTIN
+                    self._set_status("No se puede sobreescribir un preset base. Usa otro nombre.")
+                    return
+                presetsBending.save_user_preset(name, store)
+                self._reload_presetsBending()
+                self.preset_combo.set(name)
+                self._set_status(f"Preset guardado: {name}")
+            except Exception as e:
+                self._set_status(f"No se pudo guardar: {e}")
+
+        prompt = ctk.CTkToplevel(self)
+        prompt.title("Guardar preset")
+        ctk.CTkLabel(prompt, text="Nombre del preset:").pack(padx=16, pady=(16, 6))
+        entry = ctk.CTkEntry(prompt, width=280, placeholder_text="Ej. Mi preset M1 @10° 7rpm")
+        entry.pack(padx=16, pady=6)
+        btns = ctk.CTkFrame(prompt, fg_color="transparent")
+        btns.pack(pady=(6, 16))
+        ctk.CTkButton(btns, text="Guardar", command=_commit).pack(side="left", padx=8)
+        ctk.CTkButton(btns, text="Cancelar", fg_color="#777", command=prompt.destroy).pack(side="left", padx=8)
+
+        # centrar aprox
+        prompt.geometry("+200+150")
+        entry.focus_set()
+
+    def _delete_selected_preset(self):
+        name = self.preset_combo.get().strip()
+        if not name:
+            self._set_status("Selecciona un preset.")
+            return
+        if presetsBending.is_builtin(name):
+            self._set_status("No se puede eliminar un preset base.")
+            return
+        ok = presetsBending.delete_user_preset(name)
+        if ok:
+            self._reload_presetsBending()
+            self._set_status(f"Preset eliminado: {name}")
+        else:
+            self._set_status("Ese preset no existe en el almacenamiento de usuario.")
