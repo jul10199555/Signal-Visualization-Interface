@@ -59,6 +59,7 @@ angulo_escalon = 5
 
 velocidad_escalon = 1
 velocidad_actual = 7
+velocidad_inicial = 7
 
 angulo_actual=0
 # === Funciones ===
