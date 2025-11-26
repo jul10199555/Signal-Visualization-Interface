@@ -74,8 +74,8 @@ class FirstExecutionMenu(ctk.CTkFrame):
 
         # 👇 Agregamos "Bending" al dropdown
         board_dropdown = ctk.CTkComboBox(self, values=["Select a Board", "MUX32", "MUX08", "Bending"], command=select_board)
-        board_dropdown.set("Bending")  # valor por defecto si quieres
-        self.board = "Bending"
+        board_dropdown.set("MUX32")  # valor por defecto si quieres
+        self.board = "MUX32"
         board_dropdown.pack(pady=20)
 
         # Un único botón; decide a dónde ir en función del valor del combo

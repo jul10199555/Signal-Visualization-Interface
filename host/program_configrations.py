@@ -6,6 +6,7 @@ from typing import Dict, Tuple, Final
 
 # 5x41 MATERIAL CONFIGURATION
 S5X41_SWITCHER: Final[Dict[str, Tuple[int, int]]] = {
+    
     "1-1p (6001)": (1, 1),
     "1-3p (6002)": (1, 3),
     "2-4p (6003)": (2, 4),
