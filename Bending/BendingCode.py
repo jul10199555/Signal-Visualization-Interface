@@ -3,7 +3,7 @@
 #   PC -> "0\n"  | Pico -> "0\n"  | luego imprime "READY\n"
 
 import sys, time
-from machine import Pin, PWM, Timer
+from machine import Pin, PWM
 
 # ============================================================
 #   HARDWARE
@@ -20,6 +20,16 @@ encoder_pin_a   = noencoder_pin_a
 
 hall_sensor_0_a = Pin(2, Pin.IN, Pin.PULL_UP)   # HOME 0°
 hall_sensor_90  = Pin(4, Pin.IN, Pin.PULL_UP)   # 90°
+
+# LED integrado Pico
+led_cal = Pin(25, Pin.OUT)
+
+# NeoPixel WS2812 en GPIO23
+try:
+    import neopixel
+    np_led = neopixel.NeoPixel(Pin(23, Pin.OUT), 1)
+except Exception:
+    np_led = None  # si no existe el módulo neopixel, se ignora
 
 # ============================================================
 #   CONSTANTES
@@ -51,25 +61,24 @@ pulse_count       = 0
 last_state_a      = encoder_pin_a.value()
 current_direction = FORWARD
 
-GRADOS_POR_PULSO_FORWARD  = 0.014   # inicial, se recalcula en calibración
+GRADOS_POR_PULSO_FORWARD  = 0.014   # se recalcula en calibración
 GRADOS_POR_PULSO_BACKWARD = 0.014
 
-calibracion_lista = 0       # 0 ⇒ se debe calibrar antes de correr modos
+calibracion_lista = 0        # flag legacy
+global_calibrated = False    # Solo para LEDs / información, ya no bloquea modos
 
 angulo_constante     = 90
 velocidad_constante  = 7
 angulo_referencial   = 0.0
 angulo_referencial_anterior = 0.0
 
+# LED / calibración
+is_calibrating   = False
+cal_blink_state  = False
+
 # ============================================================
 #   ESTADO ESPECÍFICO MODO 2
 # ============================================================
-# Máquina de estados:
-# 0: HOME -> init_angle
-# 1: barrido hacia arriba (init -> final, step by step)
-# 2: barrido hacia abajo (final -> init, step by step)
-# (tras 5 ciclos, se regresa a HOME y se repite)
-
 mode2_state             = 0
 mode2_rep_count         = 0       # ciclos completos realizados (0..4)
 mode2_angles            = []      # lista discreta de ángulos [init,...,final]
@@ -80,16 +89,46 @@ mode2_allow_hall90      = False   # True si final_angle ~ 90° (permitir tocar H
 mode2_error_flag        = False
 
 # ============================================================
-#   ESTADO TELEMETRÍA (para envío por Timer)
+#   LEDs: helpers
 # ============================================================
-last_mode       = 0       # 1 o 2 según modo activo
-last_payload    = None    # lista con los datos a enviar
-send_status_flag = False  # se activa en el Timer, se consume en main()
+def _np_write(r, g, b):
+    if np_led is None:
+        return
+    np_led[0] = (r, g, b)
+    np_led.write()
 
-def _status_timer_cb(t):
-    # Callback de Timer: SOLO pone un flag (sin prints, sin allocs grandes)
-    global send_status_flag
-    send_status_flag = True
+def _led_all_off():
+    led_cal.value(0)
+    _np_write(0, 0, 0)
+
+def _led_set_idle_not_calibrated():
+    """
+    Estado 'sin calibrar': NeoPixel naranja fijo, LED integrado apagado.
+    """
+    led_cal.value(0)
+    _np_write(120, 40, 0)  # naranja
+
+def _led_set_calibrated():
+    """
+    Estado 'calibrado': NeoPixel verde fijo, LED integrado encendido.
+    """
+    led_cal.value(1)
+    _np_write(0, 120, 0)   # verde
+
+def _led_calibrating_toggle():
+    """
+    Parpadeo durante la calibración:
+      - LED integrado: ON/OFF
+      - NeoPixel: blanco ON/OFF
+    """
+    global cal_blink_state
+    cal_blink_state = not cal_blink_state
+    if cal_blink_state:
+        led_cal.value(1)
+        _np_write(80, 80, 80)   # blanco
+    else:
+        led_cal.value(0)
+        _np_write(0, 0, 0)
 
 # ============================================================
 #   MOTOR / ENCODER
@@ -215,7 +254,7 @@ def estimar_pulsos_entre_sensores():
 def buscar_hall(pin_objetivo, direccion, rpm_busqueda, timeout_pulsos):
     """
     Avanza en 'direccion' a baja velocidad hasta detectar 'pin_objetivo' (activo-bajo),
-    con límite de 'timeout_pulsos' desde la entrada a la función.
+    con límite de 'timeout_pulsos'.
     Retorna True si detectó el Hall, False si se alcanzó el timeout.
     """
     global pulse_count
@@ -293,7 +332,19 @@ def medir_angulo_entre_sensores():
     return angulo
 
 def calibrar_motor():
-    global pulse_count, GRADOS_POR_PULSO_FORWARD, GRADOS_POR_PULSO_BACKWARD
+    """
+    Calibración entre Hall 0° y Hall 90° con PARPADEO real:
+    - Antes de iniciar, va a HOME (para que garantices movimiento).
+    - Ambos LEDs (integrado + NeoPixel) parpadean con un periodo fijo (~150 ms).
+    - Durante la calibración se envía "CALIBRANDO" por el serial.
+    """
+    global pulse_count
+
+    # Aseguramos arrancar desde HOME
+    print("Calibración: yendo primero a HOME...")
+    go_home()
+    stop_motor()
+    time.sleep(0.3)
 
     print("Iniciando calibración (ciclos entre Hall 0° y 90°)...")
     pulse_count = 0
@@ -305,12 +356,21 @@ def calibrar_motor():
     sensor_actual = hall_sensor_0_a
     sensor_siguiente = hall_sensor_90
 
+    _led_all_off()
+    blink_last = time.ticks_ms()
+
     for i in range(ciclos + 1):
         print(f"→ Ciclo {i+1}: moviendo {direccion}")
         pulse_count = 0
         control_motor(direccion, VELOCIDAD_CALIBRACION)
 
+        # mientras nos movemos hacia el siguiente sensor, hacemos parpadeo
         while sensor_siguiente.value() == 1:
+            now = time.ticks_ms()
+            if time.ticks_diff(now, blink_last) >= 150:  # periodo ~150 ms
+                blink_last = now
+                _led_calibrating_toggle()
+                sys.stdout.write("CALIBRANDO\n")
             time.sleep(0.001)
 
         time.sleep(0.02)
@@ -330,9 +390,12 @@ def calibrar_motor():
         sensor_actual, sensor_siguiente = sensor_siguiente, sensor_actual
         time.sleep(0.5)
 
+    _led_all_off()
+
     prom_forward  = sum(forward_pulses) / len(forward_pulses)
     prom_backward = sum(backward_pulses) / len(backward_pulses)
 
+    global GRADOS_POR_PULSO_FORWARD, GRADOS_POR_PULSO_BACKWARD
     GRADOS_POR_PULSO_FORWARD  = ANGULO_ENTRE_SENSORES / prom_forward
     GRADOS_POR_PULSO_BACKWARD = ANGULO_ENTRE_SENSORES / prom_backward
 
@@ -351,7 +414,17 @@ def calibrar_motor():
 
 def _calibrar_y_medir_y_home():
     """Secuencia estándar: calibrar -> medir ángulo entre sensores -> volver a 0° y parar."""
-    global calibracion_lista, pulse_count, angulo_referencial, angulo_referencial_anterior, current_direction
+    global calibracion_lista, pulse_count
+    global angulo_referencial, angulo_referencial_anterior, current_direction
+    global global_calibrated, is_calibrating
+
+    print("=== Calibración global iniciada ===")
+    sys.stdout.write("CALIBRANDO\n")
+
+    global_calibrated = False
+    calibracion_lista = 0
+    is_calibrating    = True
+    _led_all_off()
 
     calibrar_motor()
     try:
@@ -367,8 +440,20 @@ def _calibrar_y_medir_y_home():
     angulo_referencial = 0.0
     angulo_referencial_anterior = 0.0
     current_direction = FORWARD
+
     calibracion_lista = 1
-    sys.stdout.write("Motor en Home (0°)\n")
+    global_calibrated = True
+    is_calibrating    = False
+
+    # LEDs: calibrado → verde fijo + LED integrado ON
+    _led_set_calibrated()
+
+    # 🔹 NUEVA LÍNEA PARA LA GUI:
+    sys.stdout.write("CALIBRACION LISTA\n")
+
+    sys.stdout.write("Motor en Home (0°) [Calibrado]\n")
+    print("=== Calibración global terminada ===")
+
 
 # ============================================================
 #   HELPERS MODO 2 (movimiento bloqueante por step)
@@ -377,7 +462,7 @@ def _mode2_move_relative(delta_deg, direction):
     """
     Mueve 'delta_deg' grados en 'direction' usando el encoder,
     con pre-freno y protección de Hall0 / Hall90.
-    Bloqueante: no regresa hasta terminar el movimiento o error.
+    Bloqueante.
     Retorna True si OK, False si hubo error (Hall inesperado).
     """
     global pulse_count, mode2_error_flag
@@ -447,28 +532,121 @@ def _mode2_move_to_angle(target_deg):
     return ok
 
 # ============================================================
+#   HELPERS MANUAL: movimiento desde HOME a ángulo
+# ============================================================
+def _manual_move_from_home_to_angle(target_deg, rpm, allow_hall90=False):
+    """
+    Asume que estamos en HOME (0°). Sube hasta target_deg y se detiene ahí.
+    No recalibra; usa GRADOS_POR_PULSO_* actuales.
+    """
+    global pulse_count, current_direction
+
+    # Saneos
+    if target_deg < 0:
+        target_deg = 0
+    if target_deg > ANGULO_ENTRE_SENSORES:
+        target_deg = ANGULO_ENTRE_SENSORES
+
+    # Promedio GPP
+    gpp = (GRADOS_POR_PULSO_FORWARD + GRADOS_POR_PULSO_BACKWARD) / 2
+    if gpp <= 0:
+        gpp = 0.014
+
+    target_pulses = grados_a_pulsos(target_deg, FORWARD)
+    margen_pulsos = max(1, int(MARGEN_DEG_PRE_FRENO / gpp))
+    pre_freno_start = max(0, target_pulses - margen_pulsos)
+
+    pulse_count = 0
+    current_direction = FORWARD
+    rpm_high = rpm
+    rpm_low  = max(3, rpm_high // 3)
+
+    control_motor(FORWARD, rpm_high)
+
+    while True:
+        # Si NO permitimos tocar 90°, cualquier hall90 es error
+        if hall_sensor_90.value() == 0 and (not allow_hall90):
+            print("MANUAL: Hall 90° inesperado durante movimiento. Abortando y volviendo a HOME.")
+            stop_motor()
+            go_home()
+            return False
+
+        pulsos = abs(pulse_count)
+        if pulsos >= target_pulses:
+            break
+
+        if pulsos >= pre_freno_start:
+            control_motor(FORWARD, rpm_low)
+
+        time.sleep(0.001)
+
+    stop_motor()
+    print(f"MANUAL: Alcanzado ángulo ~{target_deg}°")
+    return True
+
+def manual_home():
+    """
+    Comando HOME: ir a 0° usando Hall0. No recalibra.
+    """
+    print("MANUAL: HOME solicitado")
+    go_home()
+    stop_motor()
+
+def manual_endpos():
+    """
+    Comando ENDPOS:
+      - NO calibra.
+      - NO requiere calibración previa.
+      - Va de HOME hasta que detecte el Hall de 90° y se detiene ahí.
+      - Si no detecta Hall90 dentro de un límite de pulsos, se detiene con WARN.
+    """
+    global pulse_count
+
+    print("MANUAL: ENDPOS solicitado")
+
+    # 1) Siempre arrancamos de HOME
+    go_home()
+    stop_motor()
+    time.sleep(0.2)
+
+    # 2) Buscar Hall 90° hacia adelante con timeout en pulsos
+    pulse_count = 0
+    timeout = int(1.5 * max(estimAR := estimar_pulsos_entre_sensores(), 50))
+    print(f"MANUAL ENDPOS: buscando Hall90 con timeout {timeout} pulsos aprox...")
+    found = buscar_hall(hall_sensor_90, FORWARD, VELOCIDAD_MEDICION, timeout)
+
+    if found:
+        print("MANUAL ENDPOS: Hall 90° alcanzado, motor detenido.")
+    else:
+        print("WARN MANUAL ENDPOS: No se encontró Hall 90° dentro del timeout, motor detenido.")
+
+def manual_goto_angle(angle_deg):
+    """
+    Comando GOTO <angle>:
+      - NO requiere calibración previa.
+      - Primero va a HOME y luego sube hasta angle_deg.
+    """
+    print(f"MANUAL: GOTO solicitado → {angle_deg}°")
+
+    go_home()
+    stop_motor()
+
+    allow_h90 = (angle_deg >= ANGULO_ENTRE_SENSORES - 0.5)
+    _manual_move_from_home_to_angle(angle_deg, VELOCIDAD_MEDICION, allow_hall90=allow_h90)
+
+# ============================================================
 #   MODO 1: Ángulo fijo, velocidad fija
 # ============================================================
 def mode1_action(cfg):
     """
-    Lógica:
-    - Subida (FORWARD):
-        * Usa encoder para llegar al ángulo objetivo.
-        * Pre-freno cerca del objetivo.
-        * Si llega a Hall90 antes de objetivo, invierte igual por seguridad.
-    - Bajada (BACKWARD):
-        * Baja hasta que se active Hall0.
-        * Si NO se activa Hall0 y se recorren demasiados pulsos:
-            - Detiene.
-            - Invierte y sube la MISMA cantidad de pulsos medida por el encoder.
-            - Se detiene arriba, listo para siguiente ciclo.
+    Modo 1: igual que antes, pero YA NO fuerza calibración previa.
+    (Recomendado calibrar primero, pero no obligatorio).
     """
-    global calibracion_lista, pulse_count, angulo_referencial, angulo_referencial_anterior
-    global current_direction, velocidad_constante, angulo_constante
-    global last_mode, last_payload
+    global pulse_count, current_direction
+    global velocidad_constante, angulo_constante
 
     try:
-        v, kv = _get_val_and_key(cfg, ["velocity", "velocidad"], 7, "velocity")
+        v, kv = _get_val_and_key(cfg, ["velocity", "velocidad", "speed"], 7, "velocity")
         a, ka = _get_val_and_key(cfg, ["angle", "angulo"], 90, "angle")
 
         # Saturar ángulo
@@ -477,23 +655,10 @@ def mode1_action(cfg):
         if a > ANGULO_ENTRE_SENSORES:
             a = int(ANGULO_ENTRE_SENSORES)
 
-        # Primera entrada al modo → calibrar y dejar en 0°
-        if not calibracion_lista:
-            angulo_constante    = a
-            velocidad_constante = v
+        angulo_constante    = a
+        velocidad_constante = v
 
-            _calibrar_y_medir_y_home()
-
-            current_direction = FORWARD
-            pulse_count       = 0
-            control_motor(current_direction, velocidad_constante)
-
-            grados_actuales = 0.0
-            last_mode    = 1
-            last_payload = ["modo", 1, kv, velocidad_constante, ka, grados_actuales]
-            return
-
-        # --- CICLO NORMAL ---
+        # --- CICLO NORMAL (como antes) ---
         gpp = (GRADOS_POR_PULSO_FORWARD + GRADOS_POR_PULSO_BACKWARD) / 2
         if gpp <= 0:
             gpp = 0.014
@@ -558,9 +723,8 @@ def mode1_action(cfg):
                 if pulsos_abs >= max_pulsos_down:
                     print("Modo1: BAJANDO sin Hall0. Activando rescate por encoder.")
                     stop_motor()
-                    pulsos_fallo = pulsos_abs  # lo que recorrió bajando sin ver Hall0
+                    pulsos_fallo = pulsos_abs
 
-                    # Subir la MISMA cantidad de pulsos
                     pulse_count = 0
                     current_direction = FORWARD
                     control_motor(FORWARD, velocidad_constante)
@@ -568,21 +732,19 @@ def mode1_action(cfg):
                         time.sleep(0.001)
                     stop_motor()
 
-                    # Dejar arriba, listo para siguiente ciclo
                     current_direction = FORWARD
                     pulse_count = 0
-                    grados_actuales = float(angulo_constante)  # aproximado
+                    grados_actuales = float(angulo_constante)
+
                 else:
-                    # 3) Caso normal: seguir bajando hacia Hall0
                     control_motor(BACKWARD, velocidad_constante)
                     grados_tmp = angulo_constante - pulsos_abs * gpp
                     if grados_tmp < 0:
                         grados_tmp = 0.0
                     grados_actuales = grados_tmp
 
-        # Actualizar payload para telemetría
-        last_mode = 1
-        last_payload = ["modo", 1, kv, velocidad_constante, ka, grados_actuales]
+        # Reporte al host
+        sys.stdout.write(str(["modo", 1, kv, velocidad_constante, ka, grados_actuales]) + "\n")
 
     except Exception as e:
         stop_motor()
@@ -595,32 +757,18 @@ def mode1_action(cfg):
 # ============================================================
 def mode2_action(cfg):
     """
-    Lógica MODO 2:
-    - Primera vez:
-        * Calibrar y dejar en HOME (0°).
-    - Luego:
-        * HOME -> init_angle.
-        * Barrer de init_angle hasta final_angle en pasos de step_angle.
-        * Regresar de final_angle a init_angle en pasos de step_angle.
-        * Eso cuenta como 1 ciclo.
-        * Repetir 5 ciclos.
-        * Tras 5 ciclos, regresar a HOME (go_home) para "recalibrar" el origen.
-        * Repetir el proceso hasta STOP.
-    - Extra:
-        * Si se detecta Hall 90° y final_angle < ANGULO_ENTRE_SENSORES (≈90°),
-          se considera ERROR: se imprime aviso y se regresa a HOME.
+    Misma lógica que antes, pero YA NO fuerza calibración previa.
+    (Recomendado calibrar primero, pero no obligatorio).
     """
-    global calibracion_lista
     global mode2_state, mode2_rep_count, mode2_angles, mode2_idx
     global mode2_current_angle_est, mode2_velocity, mode2_allow_hall90
     global mode2_error_flag
-    global last_mode, last_payload
 
     # Leer configuración
     ia, kia = _get_val_and_key(cfg, ["init_angle", "angulo_inicial"], 0, "init_angle")
     fa, kfa = _get_val_and_key(cfg, ["final_angle", "angulo_final"], 90, "final_angle")
     sa, ksa = _get_val_and_key(cfg, ["step_angle"], 1, "step_angle")
-    v,  kv  = _get_val_and_key(cfg, ["velocity", "velocidad"], 7, "velocity")
+    v,  kv  = _get_val_and_key(cfg, ["velocity", "velocidad", "speed"], 7, "velocity")
 
     # Saneos básicos
     if ia < 0:
@@ -641,7 +789,7 @@ def mode2_action(cfg):
     # Permitir Hall90 solo si final_angle es ~90° (dentro de un margen)
     mode2_allow_hall90 = (fa >= (ANGULO_ENTRE_SENSORES - 0.5))
 
-    # Velocidad: en modo 2 usamos la que mandes
+    # Velocidad
     mode2_velocity = v
 
     # Construir lista de ángulos discretos [init, init+step, ..., final]
@@ -657,32 +805,8 @@ def mode2_action(cfg):
             angles.append(fa)
     mode2_angles = angles
 
-    # Primera entrada al modo 2: calibrar y dejar en HOME
-    if not calibracion_lista:
-        _calibrar_y_medir_y_home()
-        mode2_state             = 0
-        mode2_rep_count         = 0
-        mode2_idx               = 0
-        mode2_current_angle_est = 0.0
-        mode2_error_flag        = False
-
-        grados_actuales = mode2_current_angle_est
-        last_mode = 2
-        last_payload = [
-            "modo", 2,
-            kia, ia,
-            kfa, fa,
-            ksa, sa,
-            kv, v,
-            "angle", grados_actuales,
-            "rep", mode2_rep_count,
-            "idx", mode2_idx
-        ]
-        return
-
     # --- CICLO NORMAL MODO 2 ---
     if not mode2_angles:
-        # Sin rango útil, nos quedamos en HOME
         mode2_current_angle_est = 0.0
     else:
         ok = True
@@ -709,7 +833,6 @@ def mode2_action(cfg):
         elif mode2_state == 2:
             # Barrido hacia abajo: final -> init
             if mode2_idx <= 0:
-                # Regresamos a init_angle ⇒ ciclo completo
                 mode2_rep_count += 1
                 if mode2_rep_count >= 5:
                     print("Modo2: 5 ciclos completados, regresando a HOME.")
@@ -720,7 +843,6 @@ def mode2_action(cfg):
                     mode2_rep_count         = 0
                     mode2_state             = 0
                 else:
-                    # Siguiente ciclo: volver a subir
                     mode2_state = 1
             else:
                 next_idx = mode2_idx - 1
@@ -730,7 +852,6 @@ def mode2_action(cfg):
                     mode2_idx = next_idx
 
         if not ok:
-            # Hubo error (por ejemplo Hall90 inesperado)
             print("ERROR: Modo2 detectó condición anómala, regresando a HOME.")
             go_home()
             stop_motor()
@@ -742,9 +863,7 @@ def mode2_action(cfg):
 
     grados_actuales = mode2_current_angle_est
 
-    # Actualizar payload para telemetría
-    last_mode = 2
-    last_payload = [
+    sys.stdout.write(str([
         "modo", 2,
         kia, ia,
         kfa, fa,
@@ -753,10 +872,10 @@ def mode2_action(cfg):
         "angle", grados_actuales,
         "rep", mode2_rep_count,
         "idx", mode2_idx
-    ]
+    ]) + "\n")
 
 # ============================================================
-#   MODO 3 y 4: PLACEHOLDERS (no mueven motor)
+#   MODO 3 y 4 (placeholders sin lógica de motor)
 # ============================================================
 def mode3_action(cfg):
     a,  ka  = _get_val_and_key(cfg, ["angle", "angulo"], 1, "angle")
@@ -841,8 +960,7 @@ def _parse_config(s: str) -> dict:
     return _manual_parse_dict(s_norm)
 
 STATE_IDLE, STATE_RUN, STATE_PAUSED = 0, 1, 2
-INTERVAL_MS = 150   # periodo de actualización de lógica de modo (no de envío)
-STATUS_PERIOD_MS = 10  # periodo de envío de telemetría
+INTERVAL_MS = 150   # frecuencia de actualización de los modos
 
 def _get_val_and_key(cfg: dict, aliases, default_val, default_key):
     for k in aliases:
@@ -856,23 +974,7 @@ def _get_val_and_key(cfg: dict, aliases, default_val, default_key):
                     pass
     return default_val, default_key
 
-def _classify_command(line):
-    if not line:
-        return None
-    t = line.strip().upper()
-    if t in ("PAUSE", "PAUSA"):
-        return "PAUSE"
-    if t == "RUN":
-        return "RUN"
-    if t == "STOP":
-        return "STOP"
-    if t == "END":
-        return "END"
-    if t == "0":
-        return "HANDSHAKE"
-    return None
-
-def _extract_mode(cfg):
+def _mode_number_from_cfg(cfg):
     mode_raw = cfg.get("modo", cfg.get("mode", None))
     if mode_raw is None:
         raise ValueError("falta 'modo' o 'mode'")
@@ -888,7 +990,8 @@ def _extract_mode(cfg):
     return int(mode_raw)
 
 def main():
-    global calibracion_lista, send_status_flag
+    global calibracion_lista, global_calibrated
+    global mode2_state, mode2_rep_count, mode2_idx, mode2_current_angle_est, mode2_error_flag
 
     state = STATE_IDLE
     modo, cfg = None, {}
@@ -896,70 +999,128 @@ def main():
     handshaken = False
     next_t = time.ticks_ms()
 
-    # Timer para telemetría
-    status_timer = Timer(-1)
-    status_timer.init(period=STATUS_PERIOD_MS,
-                      mode=Timer.PERIODIC,
-                      callback=_status_timer_cb)
+    # Inicio: sin calibración → NeoPixel naranja
+    global_calibrated = False
+    calibracion_lista = 0
+    _led_set_idle_not_calibrated()
 
     while True:
         line = _readline_nonblocking()
 
-        # Handshake / END
+        # ==== Handshake y comandos globales / manuales (SIEMPRE) ====
         if line:
-            cmd = _classify_command(line)
-            if cmd == "HANDSHAKE":
+            t_upper = line.strip().upper()
+
+            # Handshake
+            if t_upper == "0":
                 sys.stdout.write("0\n")
                 handshaken = True
                 printed_ready = False
                 continue
-            elif cmd == "END":
+
+            # END: reset duro
+            if t_upper == "END":
                 sys.stdout.write("STOP\n")
                 state = STATE_IDLE
                 modo, cfg = None, {}
                 printed_ready = False
                 handshaken = False
                 calibracion_lista = 0
+                global_calibrated = False
+                _led_set_idle_not_calibrated()
+                stop_motor()
+                continue
+
+            # ----- CALIBRACION, HOME, ENDPOS, GOTO: SIEMPRE activos -----
+            if t_upper == "CALIBRACION":
+                # Abortamos cualquier modo, paramos motor y calibramos
+                state = STATE_IDLE
+                modo, cfg = None, {}
+                stop_motor()
+                _calibrar_y_medir_y_home()
+                continue
+
+            if t_upper == "HOME":
+                state = STATE_IDLE
+                modo, cfg = None, {}
+                stop_motor()
+                manual_home()
+                continue
+
+            if t_upper == "ENDPOS":
+                state = STATE_IDLE
+                modo, cfg = None, {}
+                stop_motor()
+                manual_endpos()
+                continue
+
+            if t_upper.startswith("GOTO"):
+                angle = None
+                try:
+                    # acepta "GOTO 20" o "GOTO:20"
+                    parts = line.replace(":", " ").split()
+                    if len(parts) >= 2:
+                        angle = int(parts[1])
+                except:
+                    angle = None
+
+                state = STATE_IDLE
+                modo, cfg = None, {}
+                stop_motor()
+                if angle is not None:
+                    manual_goto_angle(angle)
+                else:
+                    sys.stdout.write("ERROR: formato GOTO inválido. Usa 'GOTO 20' o 'GOTO:20'\n")
                 continue
 
         if not handshaken:
             time.sleep(0.01)
             continue
 
+        # READY inicial
         if state == STATE_IDLE and not printed_ready:
             sys.stdout.write("READY\n")
             inicializar_motor()
             printed_ready = True
 
+        # ================== STATE_IDLE ==================
         if state == STATE_IDLE:
             if not line:
-                # En IDLE no enviamos telemetría de modo 1/2
                 time.sleep(0.01)
                 continue
 
-            cmd = _classify_command(line)
-            if cmd == "STOP":
+            t_upper = line.strip().upper()
+
+            if t_upper == "STOP":
                 calibracion_lista = 0
                 sys.stdout.write("STOP\n")
                 printed_ready = False
+                stop_motor()
                 continue
-            elif cmd == "RUN":
+            elif t_upper == "RUN":
                 sys.stdout.write("RUN\n")
                 continue
-            elif cmd == "PAUSE":
+            elif t_upper in ("PAUSE", "PAUSA"):
                 sys.stdout.write("PAUSE\n")
                 state = STATE_PAUSED
                 continue
 
+            # Aquí esperamos config JSON para modos
             try:
                 cfg = _parse_config(line)
-                modo = _extract_mode(cfg)
+                modo = _mode_number_from_cfg(cfg)
                 if modo not in MODE_HANDLERS:
                     sys.stdout.write("ERROR: 'modo' debe ser 1..4\n")
                     continue
 
-                # NUEVO modo ⇒ forzar recalibración la próxima vez que se llame modeX_action
-                calibracion_lista = 0
+                # Si entra un nuevo modo 2, reseteamos estado interno del modo 2
+                if modo == 2:
+                    mode2_state             = 0
+                    mode2_rep_count         = 0
+                    mode2_idx               = 0
+                    mode2_current_angle_est = 0.0
+                    mode2_error_flag        = False
+
                 state = STATE_RUN
                 next_t = time.ticks_ms()
             except Exception as e:
@@ -967,61 +1128,50 @@ def main():
                 time.sleep(0.01)
                 continue
 
+        # ================== STATE_RUN ==================
         elif state == STATE_RUN:
             if line:
-                cmd = _classify_command(line)
-                if cmd == "PAUSE":
+                t_upper = line.strip().upper()
+                if t_upper in ("PAUSE", "PAUSA"):
                     sys.stdout.write("PAUSE\n")
                     state = STATE_PAUSED
                     continue
-                elif cmd == "RUN":
+                elif t_upper == "RUN":
                     sys.stdout.write("RUN\n")
                     next_t = time.ticks_add(time.ticks_ms(), INTERVAL_MS)
-                elif cmd == "STOP":
+                elif t_upper == "STOP":
                     go_home()
                     stop_motor()
-                    calibracion_lista = 0
+                    calibracion_lista = 0  # global_calibrated se conserva
                     sys.stdout.write("STOP\n")
                     state = STATE_IDLE
                     modo, cfg, printed_ready = None, {}, False
                     continue
 
-            # Actualizar lógica de modo cada INTERVAL_MS
             if modo:
                 now = time.ticks_ms()
                 if time.ticks_diff(now, next_t) >= 0:
                     MODE_HANDLERS[modo](cfg)
                     next_t = time.ticks_add(now, INTERVAL_MS)
-
-            # Enviar telemetría solo si:
-            # - hay flag del Timer
-            # - estamos en RUN
-            # - el modo actual es 1 o 2
-            global last_payload, last_mode
-            if send_status_flag and (modo in (1, 2)) and (last_payload is not None):
-                sys.stdout.write(str(last_payload) + "\n")
-                send_status_flag = False
-
             time.sleep(0)
 
+        # ================== STATE_PAUSED ==================
         elif state == STATE_PAUSED:
             if line:
-                cmd = _classify_command(line)
-                if cmd == "RUN":
+                t_upper = line.strip().upper()
+                if t_upper == "RUN":
                     sys.stdout.write("RUN\n")
                     state = STATE_RUN
                     next_t = time.ticks_add(time.ticks_ms(), INTERVAL_MS)
-                elif cmd == "STOP":
+                elif t_upper == "STOP":
                     go_home()
                     stop_motor()
                     calibracion_lista = 0
                     sys.stdout.write("STOP\n")
                     state = STATE_IDLE
                     modo, cfg, printed_ready = None, {}, False
-                elif cmd == "PAUSE":
+                elif t_upper in ("PAUSE", "PAUSA"):
                     sys.stdout.write("PAUSE\n")
-
-            # En PAUSE no enviamos telemetría de modo 1/2
             time.sleep(0.01)
 
 if __name__ == "__main__":

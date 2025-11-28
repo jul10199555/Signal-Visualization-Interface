@@ -36,7 +36,8 @@ class BendingPage(ctk.CTkFrame):
         # ===== Logging/mediciones =====
         self.logging_active = False        # se activa tras la PRIMERA muestra válida recibida
         self.log_start_ts = None           # epoch relativo inicio (perf_counter)
-        self.data_rows = []                # filas [t_rel, velocity, angle, resistance]
+        # filas: [t_rel, velocity, angle, resistance]
+        self.data_rows = []
         self.expected_modo = 1             # modo esperado según selección UI
         self.log_lock = threading.Lock()   # acceso thread-safe al buffer
 
@@ -52,6 +53,10 @@ class BendingPage(ctk.CTkFrame):
         self._mpl_fig = None
         self._mpl_ax = None
         self._mpl_line = None
+
+        # ===== Estado de modo activo y calibración =====
+        self.mode_running = False
+        self.calibrating = False
 
         # ===== Layout base =====
         self.grid_rowconfigure(1, weight=1)
@@ -101,15 +106,21 @@ class BendingPage(ctk.CTkFrame):
         self.preset_combo = ctk.CTkComboBox(preset_row, values=[], width=260)
         self.preset_combo.pack(side="left")
 
-        ctk.CTkButton(preset_row, text="Aplicar", width=90, command=self._apply_selected_preset).pack(
-            side="left", padx=(8, 0)
+        self.preset_apply_btn = ctk.CTkButton(
+            preset_row, text="Aplicar", width=90, command=self._apply_selected_preset
         )
-        ctk.CTkButton(preset_row, text="Guardar actual…", width=130, command=self._save_current_as_preset).pack(
-            side="left", padx=8
+        self.preset_apply_btn.pack(side="left", padx=(8, 0))
+
+        self.preset_save_btn = ctk.CTkButton(
+            preset_row, text="Guardar actual…", width=130, command=self._save_current_as_preset
         )
-        ctk.CTkButton(preset_row, text="Eliminar", width=100, fg_color="#b33", command=self._delete_selected_preset).pack(
-            side="left", padx=8
+        self.preset_save_btn.pack(side="left", padx=8)
+
+        self.preset_delete_btn = ctk.CTkButton(
+            preset_row, text="Eliminar", width=100, fg_color="#b33",
+            command=self._delete_selected_preset
         )
+        self.preset_delete_btn.pack(side="left", padx=8)
 
         # Cargar lista de presetsBending
         self._reload_presetsBending()
@@ -162,49 +173,123 @@ class BendingPage(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(submit_row, text="", text_color="#999999")
         self.status_label.pack(side="right", padx=8)
 
-        ctk.CTkButton(submit_row, text="Submit", command=self._on_submit, width=110).pack(side="left", pady=4, padx=(0, 6))
-        ctk.CTkButton(submit_row, text="Pause", command=self._on_pause, width=90, fg_color="#888").pack(side="left", pady=4, padx=6)
-        ctk.CTkButton(submit_row, text="Stop", command=self._on_stop, width=90, fg_color="#b33").pack(side="left", pady=4, padx=6)
-        # Export CSV independiente (no detiene)
-        ctk.CTkButton(submit_row, text="Export CSV", command=self._on_export_csv, width=110, fg_color="#2c7a7b").pack(side="left", pady=4, padx=6)
+        self.submit_btn = ctk.CTkButton(
+            submit_row, text="Submit", command=self._on_submit, width=110
+        )
+        self.submit_btn.pack(side="left", pady=4, padx=(0, 6))
+
+        self.pause_btn = ctk.CTkButton(
+            submit_row, text="Pause", command=self._on_pause, width=90, fg_color="#888"
+        )
+        self.pause_btn.pack(side="left", pady=4, padx=6)
+
+        self.stop_btn = ctk.CTkButton(
+            submit_row, text="Stop", command=self._on_stop, width=90, fg_color="#b33"
+        )
+        self.stop_btn.pack(side="left", pady=4, padx=6)
+
+        self.export_btn = ctk.CTkButton(
+            submit_row, text="Export CSV", command=self._on_export_csv,
+            width=110, fg_color="#2c7a7b"
+        )
+        self.export_btn.pack(side="left", pady=4, padx=6)
+
+        # ====== Controles manuales HOME / ENDPOS / CALIBRACION / GOTO ======
+        self.manual_frame = ctk.CTkFrame(submit_row, fg_color="transparent")
+        self.manual_frame.pack(side="left", padx=(16, 0))
+
+        self.home_btn = ctk.CTkButton(
+            self.manual_frame, text="HOME", width=70, command=self._on_home
+        )
+        self.home_btn.pack(side="left", padx=3)
+
+        self.endpos_btn = ctk.CTkButton(
+            self.manual_frame, text="ENDPOS", width=80, command=self._on_endpos
+        )
+        self.endpos_btn.pack(side="left", padx=3)
+
+        self.calib_btn = ctk.CTkButton(
+            self.manual_frame, text="CALIBRACIÓN", width=110,
+            command=self._on_calibration
+        )
+        self.calib_btn.pack(side="left", padx=3)
+
+        self.goto_angle_entry = ctk.CTkEntry(
+            self.manual_frame, width=60, placeholder_text="Ángulo"
+        )
+        self.goto_angle_entry.pack(side="left", padx=(8, 3))
+
+        self.goto_btn = ctk.CTkButton(
+            self.manual_frame, text="GOTO", width=60, command=self._on_goto
+        )
+        self.goto_btn.pack(side="left", padx=3)
+
+        # Mensaje grande de CALIBRANDO debajo de los botones
+        self.calib_label = ctk.CTkLabel(
+            self.form,
+            text="",
+            font=("Helvetica", 18, "bold"),
+            text_color="#ffcc00",
+            anchor="center",
+            justify="center",
+        )
+        self.calib_label.pack(fill="x", pady=(4, 4))
 
         # ---- Barra inferior ----
         bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
         bottom_bar.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 18))
         bottom_bar.grid_columnconfigure(0, weight=1)
-        back_btn = ctk.CTkButton(bottom_bar, text="⟵ Regresar", command=self._go_back, width=140, fg_color="#444", text_color="white")
-        back_btn.pack(side="left")
+        self.back_btn = ctk.CTkButton(
+            bottom_bar, text="⟵ Regresar", command=self._go_back,
+            width=140, fg_color="#444", text_color="white"
+        )
+        self.back_btn.pack(side="left")
 
         # ====== Sección de Gráfica ======
         self.plot_section = ctk.CTkFrame(self.scroll, fg_color="transparent")
-        # Controles X/Y + Live switch
         self.plot_controls = ctk.CTkFrame(self.plot_section, fg_color="transparent")
         self.plot_controls.pack(fill="x", pady=(10, 6))
 
-        ctk.CTkLabel(self.plot_controls, text="X:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(
+            self.plot_controls, text="X:", font=("Helvetica", 13, "bold")
+        ).pack(side="left", padx=(0, 6))
         self.param_options = ["tiempo", "resistencia", "angulo", "velocidad"]
-        self.combo_x = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150,
-                                       command=self._on_param_changed)
+        self.combo_x = ctk.CTkComboBox(
+            self.plot_controls, values=self.param_options, width=150,
+            command=self._on_param_changed
+        )
         self.combo_x.set(self.plot_x_name)
         self.combo_x.pack(side="left", padx=(0, 12))
 
-        ctk.CTkLabel(self.plot_controls, text="Y:", font=("Helvetica", 13, "bold")).pack(side="left", padx=(0, 6))
-        self.combo_y = ctk.CTkComboBox(self.plot_controls, values=self.param_options, width=150,
-                                       command=self._on_param_changed)
+        ctk.CTkLabel(
+            self.plot_controls, text="Y:", font=("Helvetica", 13, "bold")
+        ).pack(side="left", padx=(0, 6))
+        self.combo_y = ctk.CTkComboBox(
+            self.plot_controls, values=self.param_options, width=150,
+            command=self._on_param_changed
+        )
         self.combo_y.set(self.plot_y_name)
         self.combo_y.pack(side="left", padx=(0, 12))
 
-        self.live_switch = ctk.CTkSwitch(self.plot_controls, text="Live", command=self._toggle_live)
-        self.live_switch.select()  # por defecto ON cuando se muestre la sección; se aplicará en _on_submit
+        self.live_switch = ctk.CTkSwitch(
+            self.plot_controls, text="Live", command=self._toggle_live
+        )
+        self.live_switch.select()
         self.live_switch.pack(side="left", padx=(8, 0))
 
-        # Lienzo de la gráfica
         self.plot_canvas_container = ctk.CTkFrame(self.plot_section, fg_color="transparent")
         self.plot_canvas_container.pack(fill="both", expand=True)
 
         if not _HAS_MPL:
-            warn = ctk.CTkLabel(self.plot_canvas_container, text="Matplotlib no está disponible. Instálalo para ver gráficas.", text_color="#ff6666")
+            warn = ctk.CTkLabel(
+                self.plot_canvas_container,
+                text="Matplotlib no está disponible. Instálalo para ver gráficas.",
+                text_color="#ff6666",
+            )
             warn.pack(pady=8, padx=8, anchor="w")
+
+        # >>>> IMPORTANTE: inicializar estados al final, cuando ya existen TODOS los widgets <<<<
+        self._update_controls_state()
 
     # ===================== Helpers de Serial =====================
     def _is_serial_ready(self) -> bool:
@@ -309,7 +394,9 @@ class BendingPage(ctk.CTkFrame):
     def _render_rules_text(self):
         for w in self.rules.winfo_children():
             w.destroy()
-        ctk.CTkLabel(self.rules, text="Restricciones", font=("Helvetica", 14, "bold")).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(self.rules, text="Restricciones", font=("Helvetica", 14, "bold")).pack(
+            anchor="w", pady=(0, 4)
+        )
         rules_txt = (
             "• Ángulo: valores enteros entre 0 y 90.\n"
             "• Ángulo variable: el Ángulo Final no puede ser menor que el Inicial.\n"
@@ -437,14 +524,13 @@ class BendingPage(ctk.CTkFrame):
     @staticmethod
     def _parse_modo_velocity_angle(s: str):
         """
-        Espera algo tipo: ['modo', 1, 'velocity', 7, 'angle', 0.1754212]
-        Acepta 'velocity' y 'angle' como int/float (angle suele ser float).
-        Devuelve (modo:int, velocity:float, angle:float) o (None,None,None).
+        Devuelve (modo, velocity, angle, resistance)
+        resistance puede ser None si no viene en el arreglo.
         """
         try:
             lst = ast.literal_eval(s)
             if not isinstance(lst, list):
-                return None, None, None
+                return None, None, None, None
 
             d = {}
             i = 0
@@ -459,12 +545,12 @@ class BendingPage(ctk.CTkFrame):
             modo = d.get("modo")
             velocity = d.get("velocity", d.get("velocidad"))
             angle = d.get("angle", d.get("angulo"))
+            resistance = d.get("resistance", d.get("resistencia"))
 
-            # Normaliza tipos
             try:
                 modo = int(modo)
             except Exception:
-                return None, None, None
+                return None, None, None, None
 
             def to_float(x):
                 if isinstance(x, (int, float)):
@@ -479,14 +565,81 @@ class BendingPage(ctk.CTkFrame):
 
             velocity = to_float(velocity)
             angle = to_float(angle)
+            res_val = to_float(resistance) if resistance is not None else None
 
             if (velocity is None) or (angle is None):
-                return None, None, None
+                return None, None, None, None
 
-            return modo, velocity, angle
+            return modo, velocity, angle, res_val
         except Exception:
-            return None, None, None
+            return None, None, None, None
 
+    # ===================== Calibración: control de UI =====================
+    def _set_calibrating_ui(self, flag: bool):
+        def _do():
+            self.calibrating = flag
+            if flag:
+                self.status_label.configure(text="Calibrando... por favor espera.")
+                self.calib_label.configure(text="CALIBRANDO...")
+            else:
+                self.calib_label.configure(text="")
+            self._update_controls_state()
+        self.after(0, _do)
+
+    def _update_controls_state(self):
+        """
+        - Si calibrating = True: solo STOP habilitado.
+        - Si calibrating = False:
+            - Si mode_running = True: controles manuales OFF.
+            - Si mode_running = False: todo ON.
+        """
+        if self.calibrating:
+            self.submit_btn.configure(state="disabled")
+            self.pause_btn.configure(state="disabled")
+            self.export_btn.configure(state="disabled")
+            self.stop_btn.configure(state="normal")
+
+            self.mode_combo.configure(state="disabled")
+            self.preset_combo.configure(state="disabled")
+            self.preset_apply_btn.configure(state="disabled")
+            self.preset_save_btn.configure(state="disabled")
+            self.preset_delete_btn.configure(state="disabled")
+
+            for w in (self.home_btn, self.endpos_btn, self.calib_btn,
+                      self.goto_angle_entry, self.goto_btn):
+                w.configure(state="disabled")
+
+            self.live_switch.configure(state="disabled")
+            self.combo_x.configure(state="disabled")
+            self.combo_y.configure(state="disabled")
+
+            self.back_btn.configure(state="disabled")
+            return
+
+        # No calibrando
+        self.submit_btn.configure(state="normal")
+        self.pause_btn.configure(state="normal")
+        self.export_btn.configure(state="normal")
+        self.stop_btn.configure(state="normal")
+
+        self.mode_combo.configure(state="normal")
+        self.preset_combo.configure(state="normal")
+        self.preset_apply_btn.configure(state="normal")
+        self.preset_save_btn.configure(state="normal")
+        self.preset_delete_btn.configure(state="normal")
+
+        self.live_switch.configure(state="normal")
+        self.combo_x.configure(state="normal")
+        self.combo_y.configure(state="normal")
+
+        self.back_btn.configure(state="normal")
+
+        manual_state = "disabled" if self.mode_running else "normal"
+        for w in (self.home_btn, self.endpos_btn, self.calib_btn,
+                  self.goto_angle_entry, self.goto_btn):
+            w.configure(state=manual_state)
+
+    # ===================== Lector RX =====================
     def _start_reader(self):
         if self.listening:
             return
@@ -508,22 +661,44 @@ class BendingPage(ctk.CTkFrame):
                     raw = self.serial_interface.ser.readline().decode().strip()
                     if not raw:
                         continue
+
+                    up = raw.upper()
+
+                    # --- Mensajes relacionados con calibración ---
+
+                    # 1) FIN de calibración
+                    if ("CALIBRACION LISTA" in up or
+                        "MOTOR EN HOME" in up or
+                        "CALIBRADO" in up):
+                        self._set_calibrating_ui(False)
+                        time.sleep(0.003)
+                        continue
+
+                    # 2) INICIO / progreso de calibración
+                    if ("CALIBRANDO" in up) or (up.strip() == "CALIBRACION"):
+                        self._set_calibrating_ui(True)
+                        time.sleep(0.003)
+                        continue
+
                     print(f"[RX] {raw}")
-                    modo, vel, ang = self._parse_modo_velocity_angle(raw)
+                    modo, vel, ang, res = self._parse_modo_velocity_angle(raw)
                     if (modo is not None) and (vel is not None) and (ang is not None):
-                        # Si el modo coincide, registramos y actualizamos UI
-                        if modo == self.expected_modo:
+                        if modo == self.expected_modo or modo == 0:
                             with self.log_lock:
                                 now = time.perf_counter()
                                 if not self.logging_active:
                                     self.logging_active = True
                                     self.log_start_ts = now
                                 t_rel = now - self.log_start_ts
-                                resistencia = 0.0  # placeholder para futuro
-                                self.data_rows.append([t_rel, float(vel), float(ang), resistencia])
 
-                            self._update_readings(modo, ang, vel)
+                                res_val = float(res) if res is not None else None
+                                self.data_rows.append(
+                                    [t_rel, float(vel), float(ang), res_val]
+                                )
+
+                            self._update_readings(modo, ang, vel, res)
                     time.sleep(0.003)
+
             except Exception as e:
                 self._set_status(f"Error lector: {e}")
             finally:
@@ -535,34 +710,102 @@ class BendingPage(ctk.CTkFrame):
     def _set_status(self, text: str):
         self.after(0, lambda: self.status_label.configure(text=text))
 
-    def _update_readings(self, mode_val: int, angle_val: float, speed_val: float):
+    def _update_readings(self, mode_val: int, angle_val: float, speed_val: float, resistance_val=None):
         def _do():
             if hasattr(self, "mode_value_label"):
                 self.mode_value_label.configure(text=str(mode_val))
+
             if hasattr(self, "angle_value_label"):
                 if isinstance(angle_val, float):
                     self.angle_value_label.configure(text=f"{angle_val:.6f}")
                 else:
                     self.angle_value_label.configure(text=str(angle_val))
+
             if hasattr(self, "speed_value_label"):
                 if isinstance(speed_val, float) and not float(speed_val).is_integer():
                     self.speed_value_label.configure(text=f"{speed_val:.6f}")
                 else:
                     self.speed_value_label.configure(text=str(int(speed_val)))
+
+            if hasattr(self, "resistance_value_label"):
+                if resistance_val is None:
+                    txt = "N/E"
+                else:
+                    if isinstance(resistance_val, float) and not float(resistance_val).is_integer():
+                        txt = f"{resistance_val:.6f}"
+                    else:
+                        txt = str(int(resistance_val))
+                self.resistance_value_label.configure(text=txt)
+
             if hasattr(self, "samples_label"):
                 with self.log_lock:
                     n = len(self.data_rows)
                 self.samples_label.configure(text=f"Muestras: {n}")
         self.after(0, _do)
 
+    # ===================== Controles manuales =====================
+    def _send_manual_command(self, cmd: str):
+        try:
+            if not self._ensure_serial_ready():
+                return
+            if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
+                self.serial_interface.send_command(cmd)
+            else:
+                self.serial_interface.ser.write((cmd + "\n").encode())
+            self._set_status(f"{cmd} enviado.")
+        except Exception as e:
+            self._set_status(f"Error al enviar {cmd}: {e}")
+
+    def _on_home(self):
+        if self.mode_running or self.calibrating:
+            self._set_status("No se puede usar HOME mientras hay modo activo o calibración.")
+            return
+        self._send_manual_command("HOME")
+
+    def _on_endpos(self):
+        if self.mode_running or self.calibrating:
+            self._set_status("No se puede usar ENDPOS mientras hay modo activo o calibración.")
+            return
+        self._send_manual_command("ENDPOS")
+
+    def _on_calibration(self):
+        if self.mode_running or self.calibrating:
+            self._set_status("No se puede calibrar mientras hay modo activo o calibración.")
+            return
+        self._send_manual_command("CALIBRACION")
+        self._set_calibrating_ui(True)
+        self._start_reader()
+
+    def _on_goto(self):
+        if self.mode_running or self.calibrating:
+            self._set_status("No se puede usar GOTO mientras hay modo activo o calibración.")
+            return
+        txt = self.goto_angle_entry.get().strip()
+        if not txt:
+            self._set_status("Ingresa un ángulo para GOTO.")
+            return
+        try:
+            ang = int(txt)
+        except Exception:
+            self._set_status("Ángulo inválido para GOTO (usa entero).")
+            return
+        if not (0 <= ang <= 90):
+            self._set_status("Ángulo GOTO debe ser 0–90.")
+            return
+        cmd = f"GOTO:{ang}"
+        self._send_manual_command(cmd)
+
     # ===================== Acciones =====================
     def _on_submit(self):
+        if self.calibrating:
+            self._set_status("No puedes iniciar un modo mientras se calibra.")
+            return
+
         mode = self.mode_combo.get()
         ok, cfg = self._validate(mode)
         if not ok:
             return
 
-        # Configura modo esperado y resetea el buffer de mediciones
         self.expected_modo = self._mode_number(mode)
         with self.log_lock:
             self.logging_active = False
@@ -571,16 +814,17 @@ class BendingPage(ctk.CTkFrame):
 
         cmd_str = self._compose_command_json(cfg)
         self._send_submit_command(cmd_str)
+
+        self.mode_running = True
+        self._update_controls_state()
+
         if not hasattr(self, "read_section_shown") or not self.read_section_shown:
             self._build_read_section()
             self.read_section_shown = True
-
-            # Mostrar la sección de gráfica debajo de la lectura
             self.plot_section.pack(fill="both", expand=True, pady=(8, 10))
 
         self._start_reader()
 
-        # Activa live plotting por defecto si hay Matplotlib
         if _HAS_MPL:
             self.live_enabled = True
             self.live_switch.select()
@@ -602,6 +846,9 @@ class BendingPage(ctk.CTkFrame):
             return
 
     def _on_pause(self):
+        if self.calibrating:
+            self._set_status("No puedes usar PAUSE durante calibración.")
+            return
         try:
             if not self._ensure_serial_ready():
                 return
@@ -615,7 +862,6 @@ class BendingPage(ctk.CTkFrame):
 
     def _on_stop(self):
         try:
-            # 1) Enviar STOP al firmware
             if self._ensure_serial_ready():
                 if hasattr(self.serial_interface, "send_command") and callable(self.serial_interface.send_command):
                     self.serial_interface.send_command("STOP")
@@ -623,29 +869,28 @@ class BendingPage(ctk.CTkFrame):
                     self.serial_interface.ser.write(b"STOP\n")
             self._set_status("STOP enviado. Exportando CSV...")
 
-            # 2) Detener hilo lector
             if self.listening:
                 self.stop_event.set()
                 if self.reader_thread and self.reader_thread.is_alive():
                     self.reader_thread.join(timeout=0.5)
 
-            # 3) Exportar CSV
             self._export_csv()
 
-            # 4) Reset básico de logging
             with self.log_lock:
                 self.logging_active = False
                 self.log_start_ts = None
 
-            # Puedes decidir si quieres desactivar live al hacer STOP:
-            # self._stop_live_plot()
+            self.mode_running = False
+            self._set_calibrating_ui(False)
 
             self._set_status("CSV exportado.")
         except Exception as e:
             self._set_status(f"Error STOP/CSV: {e}")
 
     def _on_export_csv(self):
-        """Exportación manual sin detener el lector."""
+        if self.calibrating:
+            self._set_status("No se puede exportar CSV durante calibración.")
+            return
         try:
             self._export_csv()
             self._set_status("CSV exportado (manual).")
@@ -653,10 +898,6 @@ class BendingPage(ctk.CTkFrame):
             self._set_status(f"Error al exportar CSV: {e}")
 
     def _export_csv(self):
-        """
-        Guarda self.data_rows a CSV con cabecera: time,velocity,angle,resistance.
-        Pregunta ruta con filedialog. Si se cancela, usa nombre por defecto en cwd.
-        """
         with self.log_lock:
             rows = list(self.data_rows)
 
@@ -670,7 +911,7 @@ class BendingPage(ctk.CTkFrame):
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv")],
                 initialfile=default_name,
-                title="Guardar mediciones como CSV"
+                title="Guardar mediciones como CSV",
             )
         except Exception:
             path = ""
@@ -678,30 +919,44 @@ class BendingPage(ctk.CTkFrame):
         if not path:
             path = default_name
 
+        # Normalizamos filas y convertimos None en vacío para resistance
+        rows_to_write = []
+        for r in rows:
+            r = list(r)
+            if len(r) < 4:
+                r += [None] * (4 - len(r))
+            t, v, a, res = r[:4]
+            res_out = "" if res is None else res
+            rows_to_write.append([t, v, a, res_out])
+
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["time", "velocity", "angle", "resistance"])
-                writer.writerows(rows)
+                writer.writerows(rows_to_write)
         except Exception as e:
             self._set_status(f"No se pudo guardar CSV: {e}")
             return
 
     # ===================== Gráfica (en vivo) =====================
     def _on_param_changed(self, _value=None):
-        """Cuando cambian X/Y; reconfigura ejes y fuerza redibujo."""
+        if self.calibrating:
+            self._set_status("No se pueden cambiar ejes durante calibración.")
+            return
         self.plot_x_name = self.combo_x.get().strip().lower()
         self.plot_y_name = self.combo_y.get().strip().lower()
         if self.plot_x_name == self.plot_y_name:
             self._set_status("X y Y no pueden ser el mismo parámetro.")
             return
         if _HAS_MPL:
-            self._ensure_plot_initialized(force_new_axes=True)  # reinicia títulos/labels
-            # Redibuja en el próximo tick; si live off, fuerza un tick inmediato:
+            self._ensure_plot_initialized(force_new_axes=True)
             if not self.live_enabled:
                 self._live_plot_tick()
 
     def _toggle_live(self):
+        if self.calibrating:
+            self._set_status("No se puede activar/desactivar Live durante calibración.")
+            return
         self.live_enabled = bool(self.live_switch.get())
         if self.live_enabled:
             if _HAS_MPL:
@@ -715,21 +970,18 @@ class BendingPage(ctk.CTkFrame):
     def _ensure_plot_initialized(self, force_new_axes: bool = False):
         if not _HAS_MPL:
             return
-        # Crear canvas si no existe
         if self._mpl_canvas is None or force_new_axes:
-            # limpia contenedor
             for w in self.plot_canvas_container.winfo_children():
                 w.destroy()
 
             fig = Figure(figsize=(6, 3.6), dpi=100)
             ax = fig.add_subplot(111)
 
-            # línea vacía
-            (line,) = ax.plot([], [])  # una línea sin estilos para velocidad
+            (line,) = ax.plot([], [])
             ax.grid(True, linestyle="--", alpha=0.3)
 
-            # Etiquetas
             units = {"tiempo": "s", "velocidad": "rpm", "angulo": "°", "resistencia": "Ω"}
+
             def label(n):
                 base = n.capitalize()
                 u = units.get(n, "")
@@ -743,26 +995,24 @@ class BendingPage(ctk.CTkFrame):
             canvas.draw()
             canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=6)
 
-            # Guarda refs
             self._mpl_canvas = canvas
             self._mpl_fig = fig
             self._mpl_ax = ax
             self._mpl_line = line
-
         else:
-            # Reetiqueta si solo cambió X/Y
             ax = self._mpl_ax
             units = {"tiempo": "s", "velocidad": "rpm", "angulo": "°", "resistencia": "Ω"}
+
             def label(n):
                 base = n.capitalize()
                 u = units.get(n, "")
                 return f"{base} ({u})" if u else base
+
             ax.set_xlabel(label(self.plot_x_name))
             ax.set_ylabel(label(self.plot_y_name))
             ax.set_title(f"{label(self.plot_y_name)} vs {label(self.plot_x_name)}")
 
     def _schedule_live_tick(self):
-        # Programa el siguiente tick si live ON
         if self.live_enabled and self.live_job is None:
             self.live_job = self.after(self.LIVE_REFRESH_MS, self._live_plot_tick)
 
@@ -775,11 +1025,10 @@ class BendingPage(ctk.CTkFrame):
             self.live_job = None
 
     def _live_plot_tick(self):
-        self.live_job = None  # este tick ya se está ejecutando
+        self.live_job = None
         if not self.live_enabled or not _HAS_MPL:
             return
 
-        # data_rows: [time, velocity, angle, resistance]
         idx_map = {"tiempo": 0, "velocidad": 1, "angulo": 2, "resistencia": 3}
         x_name = self.plot_x_name
         y_name = self.plot_y_name
@@ -793,33 +1042,42 @@ class BendingPage(ctk.CTkFrame):
 
         if len(rows) >= 2:
             xi, yi = idx_map[x_name], idx_map[y_name]
-            try:
-                x = [r[xi] for r in rows]
-                y = [r[yi] for r in rows]
-            except Exception:
+            valid_pairs = []
+            for r in rows:
+                r = list(r)
+                if len(r) <= max(xi, yi):
+                    continue
+                vx = r[xi]
+                vy = r[yi]
+                if vx is None or vy is None:
+                    continue
+                valid_pairs.append((vx, vy))
+
+            if valid_pairs:
+                x = [p[0] for p in valid_pairs]
+                y = [p[1] for p in valid_pairs]
+            else:
                 x, y = [], []
         else:
             x, y = [], []
 
-        # Asegura canvas
         self._ensure_plot_initialized()
 
-        # Actualiza datos de la línea
         if self._mpl_line is not None:
             self._mpl_line.set_data(x, y)
-            # Recalcula límites si hay datos
             if len(x) > 0 and len(y) > 0:
                 self._mpl_ax.relim()
                 self._mpl_ax.autoscale_view()
             self._mpl_canvas.draw_idle()
 
-        # Reprograma siguiente tick
         self._schedule_live_tick()
 
     # ===================== UI de lectura =====================
     def _build_read_section(self):
         self.read_frame.pack(fill="x", pady=(12, 6))
-        ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(anchor="w", pady=(0, 8))
+        ctk.CTkLabel(self.read_frame, text="Lectura", font=("Helvetica", 16, "bold")).pack(
+            anchor="w", pady=(0, 8)
+        )
         mode_row = ctk.CTkFrame(self.read_frame, fg_color="transparent")
         mode_row.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(mode_row, text="Modo", font=("Helvetica", 14, "bold")).pack(side="left")
@@ -828,20 +1086,30 @@ class BendingPage(ctk.CTkFrame):
 
         grid = ctk.CTkFrame(self.read_frame, fg_color="transparent")
         grid.pack(fill="x")
+
         left = ctk.CTkFrame(grid, fg_color="transparent")
+        middle = ctk.CTkFrame(grid, fg_color="transparent")
         right = ctk.CTkFrame(grid, fg_color="transparent")
+
         left.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        middle.pack(side="left", fill="x", expand=True, padx=8)
         right.pack(side="left", fill="x", expand=True, padx=(8, 0))
 
+        # Ángulo
         ctk.CTkLabel(left, text="Ángulo (°)", font=("Helvetica", 14, "bold")).pack(anchor="w")
         self.angle_value_label = ctk.CTkLabel(left, text="--", font=("Helvetica", 22))
         self.angle_value_label.pack(anchor="w", pady=(4, 6))
 
-        ctk.CTkLabel(right, text="Velocidad (rpm)", font=("Helvetica", 14, "bold")).pack(anchor="w")
-        self.speed_value_label = ctk.CTkLabel(right, text="--", font=("Helvetica", 22))
+        # Velocidad
+        ctk.CTkLabel(middle, text="Velocidad (rpm)", font=("Helvetica", 14, "bold")).pack(anchor="w")
+        self.speed_value_label = ctk.CTkLabel(middle, text="--", font=("Helvetica", 22))
         self.speed_value_label.pack(anchor="w", pady=(4, 6))
 
-        # (Opcional) contador de muestras
+        # Resistencia
+        ctk.CTkLabel(right, text="Resistencia (Ω)", font=("Helvetica", 14, "bold")).pack(anchor="w")
+        self.resistance_value_label = ctk.CTkLabel(right, text="N/E", font=("Helvetica", 22))
+        self.resistance_value_label.pack(anchor="w", pady=(4, 6))
+
         self.samples_label = ctk.CTkLabel(self.read_frame, text="Muestras: 0", font=("Helvetica", 12))
         self.samples_label.pack(anchor="w", pady=(6, 0))
 
@@ -849,6 +1117,8 @@ class BendingPage(ctk.CTkFrame):
         if self.listening:
             self.stop_event.set()
         self._stop_live_plot()
+        self.mode_running = False
+        self._set_calibrating_ui(False)
         if callable(self.on_back):
             self.on_back()
 
@@ -872,48 +1142,56 @@ class BendingPage(ctk.CTkFrame):
         self._set_status(f"Preset aplicado: {name}")
 
     def _apply_preset_cfg(self, cfg: dict):
-        """
-        Ajusta el modo y rellena los campos visibles con los valores del preset.
-        """
         modo = int(cfg.get("modo", 0))
 
-        # Cambiar el combo de modo (redibuja campos)
         name_by_mode = {1: "Mode 1", 2: "Mode 2", 3: "Mode 3", 4: "Mode 4"}.get(modo, "Mode 1")
         if self.mode_combo.get() != name_by_mode:
             self.mode_combo.set(name_by_mode)
             self._on_mode_change(name_by_mode)
 
-        # Ahora, según modo, rellenar
         def set_entry(key: str, value):
             if key in self.inputs and hasattr(self.inputs[key], "delete"):
                 self.inputs[key].delete(0, "end")
                 self.inputs[key].insert(0, str(value))
 
         if modo == 1:
-            if "angle" in cfg: set_entry("angle_const", cfg["angle"])
-            if "speed" in cfg: set_entry("speed_const", cfg["speed"])
+            if "angle" in cfg:
+                set_entry("angle_const", cfg["angle"])
+            if "speed" in cfg:
+                set_entry("speed_const", cfg["speed"])
         elif modo == 2:
-            if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
-            if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
-            if "step_angle" in cfg: set_entry("angle_step", cfg["step_angle"])
-            if "velocity" in cfg:   set_entry("speed_const", cfg["velocity"])
+            if "init_angle" in cfg:
+                set_entry("angle_init", cfg["init_angle"])
+            if "final_angle" in cfg:
+                set_entry("angle_final", cfg["final_angle"])
+            if "step_angle" in cfg:
+                set_entry("angle_step", cfg["step_angle"])
+            if "velocity" in cfg:
+                set_entry("speed_const", cfg["velocity"])
         elif modo == 3:
-            if "angle" in cfg:      set_entry("angle_const", cfg["angle"])
-            if "init_vel" in cfg:   set_entry("speed_init", cfg["init_vel"])
-            if "final_vel" in cfg:  set_entry("speed_final", cfg["final_vel"])
-            if "step_vel" in cfg:   set_entry("speed_step", cfg["step_vel"])
+            if "angle" in cfg:
+                set_entry("angle_const", cfg["angle"])
+            if "init_vel" in cfg:
+                set_entry("speed_init", cfg["init_vel"])
+            if "final_vel" in cfg:
+                set_entry("speed_final", cfg["final_vel"])
+            if "step_vel" in cfg:
+                set_entry("speed_step", cfg["step_vel"])
         elif modo == 4:
-            if "init_angle" in cfg: set_entry("angle_init", cfg["init_angle"])
-            if "final_angle" in cfg: set_entry("angle_final", cfg["final_angle"])
-            if "step_angle" in cfg: set_entry("angle_step", cfg["step_angle"])
-            if "init_vel" in cfg:   set_entry("speed_init", cfg["init_vel"])
-            if "final_vel" in cfg:  set_entry("speed_final", cfg["final_vel"])
-            if "step_vel" in cfg:   set_entry("speed_step", cfg["step_vel"])
+            if "init_angle" in cfg:
+                set_entry("angle_init", cfg["init_angle"])
+            if "final_angle" in cfg:
+                set_entry("angle_final", cfg["final_angle"])
+            if "step_angle" in cfg:
+                set_entry("angle_step", cfg["step_angle"])
+            if "init_vel" in cfg:
+                set_entry("speed_init", cfg["init_vel"])
+            if "final_vel" in cfg:
+                set_entry("speed_final", cfg["final_vel"])
+            if "step_vel" in cfg:
+                set_entry("speed_step", cfg["step_vel"])
 
     def _save_current_as_preset(self):
-        """
-        Valida el formulario actual y pide un nombre para guardar como preset (usuario).
-        """
         mode = self.mode_combo.get()
         ok, cfg = self._validate(mode)
         if not ok:
@@ -939,7 +1217,7 @@ class BendingPage(ctk.CTkFrame):
                 "final_vel": cfg["speed_final"],
                 "step_vel": cfg["speed_step"],
             }
-        else:  # m == 4
+        else:
             store = {
                 "modo": 4,
                 "init_angle": cfg["angle_init"],
