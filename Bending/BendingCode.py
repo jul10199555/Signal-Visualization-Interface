@@ -1,6 +1,17 @@
-# main.py — Raspberry Pi Pico (RP2040) / MicroPython
-# Protocolo compatible:
-#   PC -> "0\n"  | Pico -> "0\n"  | luego imprime "READY\n"
+# ============================================================
+# Firmware: main.py — Raspberry Pi Pico (RP2040) / MicroPython
+# Project: Serial Protocol + Motor + Encoder/Halls + HX711
+#
+# Version:      v2.9.0
+# Build date:   2026-02-11
+# Build time:   11:55:00 (America/Mexico_City)
+# Commit/Tag:   (fill: git hash or manual tag)
+#
+# Changelog:
+# - v2.9.0: HX711 integrated (non-blocking + EMA), resistance field added to TX in modes 1..4.
+# - v2.8.x: Manual commands (CALIBRACION/HOME/ENDPOS/GOTO), LED states, state machine RUN/PAUSE.
+# ============================================================
+
 
 import sys, time
 from machine import Pin, PWM
@@ -30,6 +41,143 @@ try:
     np_led = neopixel.NeoPixel(Pin(23, Pin.OUT), 1)
 except Exception:
     np_led = None  # si no existe el módulo neopixel, se ignora
+
+# ============================================================
+#   HX711 (NUEVO)
+# ============================================================
+# IMPORTANTE: Ajusta estos pines a tu cableado real.
+# DOUT (DT) es ENTRADA a la Pico, SCK es SALIDA desde la Pico.
+HX711_DOUT_PIN = 21
+HX711_SCK_PIN  = 20
+
+try:
+    # En algunos ports de MicroPython: machine.disable_irq / enable_irq existen
+    import machine as _machine
+    _HAS_IRQ_CTRL = hasattr(_machine, "disable_irq") and hasattr(_machine, "enable_irq")
+except Exception:
+    _machine = None
+    _HAS_IRQ_CTRL = False
+
+class HX711:
+    """
+    Driver HX711 minimalista (bit-bang), compatible con MicroPython.
+    - No bloquea si no hay dato: is_ready() revisa DOUT (activo-bajo).
+    - read_raw() lee 24 bits + pulsos de ganancia.
+    """
+    def __init__(self, dout_pin: int, sck_pin: int, gain: int = 128):
+        self.dout = Pin(dout_pin, Pin.IN, Pin.PULL_UP)
+        self.sck  = Pin(sck_pin, Pin.OUT)
+        self.sck.value(0)
+
+        # Ganancia/canal: 128 (A), 64 (A), 32 (B)
+        if gain not in (128, 64, 32):
+            gain = 128
+        self.gain = gain
+
+        # Pulsos extra después de 24 bits:
+        # 128 -> 1 pulso, 64 -> 3 pulsos, 32 -> 2 pulsos
+        if gain == 128:
+            self._gain_pulses = 1
+        elif gain == 64:
+            self._gain_pulses = 3
+        else:  # 32
+            self._gain_pulses = 2
+
+    def is_ready(self) -> bool:
+        # HX711 listo cuando DOUT está en 0 (activo-bajo)
+        return self.dout.value() == 0
+
+    def _clock_pulse(self):
+        # Pulso de reloj (timing conservador)
+        self.sck.value(1)
+        time.sleep_us(1)
+        self.sck.value(0)
+        time.sleep_us(1)
+
+    def read_raw(self):
+        """
+        Lee un valor RAW con signo (24-bit).
+        Retorna int o None si no está listo.
+        """
+        if not self.is_ready():
+            return None
+
+        # Para estabilidad del bit-banging, opcionalmente deshabilitamos IRQ brevemente
+        irq_state = None
+        if _HAS_IRQ_CTRL and _machine is not None:
+            try:
+                irq_state = _machine.disable_irq()
+            except Exception:
+                irq_state = None
+
+        try:
+            data = 0
+            # 24 bits MSB first
+            for _ in range(24):
+                self.sck.value(1)
+                time.sleep_us(1)
+                data = (data << 1) | (1 if self.dout.value() else 0)
+                self.sck.value(0)
+                time.sleep_us(1)
+
+            # Pulsos extra para seleccionar ganancia/canal para la siguiente conversión
+            for _ in range(self._gain_pulses):
+                self._clock_pulse()
+
+            # Convertir a signed 24-bit
+            if data & 0x800000:
+                data -= 1 << 24
+
+            return data
+        finally:
+            if irq_state is not None and _HAS_IRQ_CTRL and _machine is not None:
+                try:
+                    _machine.enable_irq(irq_state)
+                except Exception:
+                    pass
+
+# Instancia HX711 (si falla, se desactiva sin romper firmware)
+try:
+    hx711 = HX711(HX711_DOUT_PIN, HX711_SCK_PIN, gain=128)
+except Exception:
+    hx711 = None
+
+# Estado HX711 (último valor y filtrado)
+hx_last_raw      = None
+hx_filtered      = None
+HX_ALPHA         = 0.20  # EMA simple (0..1). 0.2 = suaviza ruido sin demasiado lag.
+
+def hx_update_nonblocking():
+    """
+    Intenta actualizar el valor HX711 sin bloquear.
+    Si hay nuevo dato, actualiza hx_last_raw y hx_filtered.
+    Retorna hx_filtered (float) o None si no hay dato aún.
+    """
+    global hx_last_raw, hx_filtered
+    if hx711 is None:
+        return None
+
+    raw = hx711.read_raw()
+    if raw is None:
+        return hx_filtered  # sin dato nuevo, conservamos último filtrado
+
+    hx_last_raw = raw
+
+    # Filtrado EMA
+    if hx_filtered is None:
+        hx_filtered = float(raw)
+    else:
+        hx_filtered = (1.0 - HX_ALPHA) * float(hx_filtered) + HX_ALPHA * float(raw)
+
+    return hx_filtered
+
+def hx_get_resistance_value():
+    """
+    Para tu UI lo enviamos como "resistance".
+    En esta fase se envía el valor HX711 FILTRADO (cuentas).
+    Si luego quieres convertir a Ohms, aquí es donde aplicarías offset/escala.
+    """
+    return hx_filtered
 
 # ============================================================
 #   CONSTANTES
@@ -641,6 +789,7 @@ def mode1_action(cfg):
     """
     Modo 1: igual que antes, pero YA NO fuerza calibración previa.
     (Recomendado calibrar primero, pero no obligatorio).
+    NUEVO: agrega "resistance" (HX711) al paquete TX sin alterar lógica.
     """
     global pulse_count, current_direction
     global velocidad_constante, angulo_constante
@@ -743,8 +892,13 @@ def mode1_action(cfg):
                         grados_tmp = 0.0
                     grados_actuales = grados_tmp
 
-        # Reporte al host
-        sys.stdout.write(str(["modo", 1, kv, velocidad_constante, ka, grados_actuales]) + "\n")
+        # NUEVO: actualizar HX711 (no bloqueante) y enviar "resistance"
+        hx_update_nonblocking()
+        res_val = hx_get_resistance_value()
+
+        # Reporte al host (se conserva estructura, solo se agrega resistance)
+        sys.stdout.write(str(["modo", 1, kv, velocidad_constante, ka, grados_actuales,
+                              "resistance", res_val]) + "\n")
 
     except Exception as e:
         stop_motor()
@@ -759,6 +913,7 @@ def mode2_action(cfg):
     """
     Misma lógica que antes, pero YA NO fuerza calibración previa.
     (Recomendado calibrar primero, pero no obligatorio).
+    NUEVO: agrega "resistance" (HX711) al paquete TX.
     """
     global mode2_state, mode2_rep_count, mode2_angles, mode2_idx
     global mode2_current_angle_est, mode2_velocity, mode2_allow_hall90
@@ -863,6 +1018,10 @@ def mode2_action(cfg):
 
     grados_actuales = mode2_current_angle_est
 
+    # NUEVO: actualizar HX711 (no bloqueante) y enviar "resistance"
+    hx_update_nonblocking()
+    res_val = hx_get_resistance_value()
+
     sys.stdout.write(str([
         "modo", 2,
         kia, ia,
@@ -871,18 +1030,25 @@ def mode2_action(cfg):
         kv, v,
         "angle", grados_actuales,
         "rep", mode2_rep_count,
-        "idx", mode2_idx
+        "idx", mode2_idx,
+        "resistance", res_val
     ]) + "\n")
 
 # ============================================================
 #   MODO 3 y 4 (placeholders sin lógica de motor)
+#   NUEVO: también envían "resistance"
 # ============================================================
 def mode3_action(cfg):
     a,  ka  = _get_val_and_key(cfg, ["angle", "angulo"], 1, "angle")
     iv, kiv = _get_val_and_key(cfg, ["init_vel", "velocidad_inicial"], 7, "init_vel")
     fv, kfv = _get_val_and_key(cfg, ["final_vel", "velocidad_final"], 30, "final_vel")
     sv, ksv = _get_val_and_key(cfg, ["step_vel"], 1, "step_vel")
-    sys.stdout.write(str(["modo", 3, ka, a, kiv, iv, kfv, fv, ksv, sv]) + "\n")
+
+    hx_update_nonblocking()
+    res_val = hx_get_resistance_value()
+
+    sys.stdout.write(str(["modo", 3, ka, a, kiv, iv, kfv, fv, ksv, sv,
+                          "resistance", res_val]) + "\n")
 
 def mode4_action(cfg):
     ia, kia = _get_val_and_key(cfg, ["init_angle", "angulo_inicial"], 0, "init_angle")
@@ -891,7 +1057,12 @@ def mode4_action(cfg):
     iv, kiv = _get_val_and_key(cfg, ["init_vel", "velocidad_inicial"], 7, "init_vel")
     fv, kfv = _get_val_and_key(cfg, ["final_vel", "velocidad_final"], 30, "final_vel")
     sv, ksv = _get_val_and_key(cfg, ["step_vel"], 1, "step_vel")
-    sys.stdout.write(str(["modo", 4, kia, ia, kfa, fa, ksa, sa, kiv, iv, kfv, fv, ksv, sv]) + "\n")
+
+    hx_update_nonblocking()
+    res_val = hx_get_resistance_value()
+
+    sys.stdout.write(str(["modo", 4, kia, ia, kfa, fa, ksa, sa, kiv, iv, kfv, fv, ksv, sv,
+                          "resistance", res_val]) + "\n")
 
 MODE_HANDLERS = {
     1: mode1_action,
@@ -1005,6 +1176,10 @@ def main():
     _led_set_idle_not_calibrated()
 
     while True:
+        # NUEVO: mantener actualizado HX711 sin bloquear el loop
+        # (si no hay dato listo, solo retorna; no altera la lógica de modos/LEDs)
+        hx_update_nonblocking()
+
         line = _readline_nonblocking()
 
         # ==== Handshake y comandos globales / manuales (SIEMPRE) ====
