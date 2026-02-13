@@ -7,113 +7,24 @@ import input_validation as iv
 import presets  # <-- usar el módulo completo
 import pprint
 import os
+import sys
 import importlib
-from typing import Dict, List, Tuple
+from typing import List
+
+_ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+_MCU_DIR = os.path.join(_ROOT_DIR, "MCU")
+if _MCU_DIR not in sys.path:
+    sys.path.insert(0, _MCU_DIR)
+
+from payload_schema import CFG_PRESETS, validate_keyed_tokens, token_value
 
 
-CONFIG_PRESETS = {
-    "CFG1": "MUX_32,ENV_C_H_hPa_KOhms,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_21,SMPFQ_1000",
-    "CFG2": "MUX_32,ENV_C_H_N_N,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_10,SMPFQ_1000",
-}
-
-SUPPORTED_KEYS = {
-    "ENV", "LUX", "MACHINE", "TCYC", "DISP", "LOAD", "HX", "MATYPE", "TSTYPE",
-    "MATDIM", "DBND", "SENSNUM", "TCH", "SMPFQ", "GRID", "SPD", "ANG", "STR"
-}
-
-LEGACY_KEYS = {"TEST", "DELAM", "SAMPLE", "MACH", "SIZE", "MAT", "TSTTYPE", "CH", "SAMPFQ"}
-
-
-def _normalize_machine_code(raw: str) -> str:
-    val = str(raw).strip().upper()
-    return {"1": "S", "2": "T", "3": "M", "4": "F", "5": "O"}.get(val, val)
-
-
-def _normalize_matype_code(raw: str) -> str:
-    val = str(raw).strip().upper()
-    return {"1": "C", "2": "G", "3": "M", "4": "X", "5": "A"}.get(val, val)
-
-
-def _validate_keyed_tokens(tokens: List[str]) -> Tuple[bool, str]:
-    if not tokens:
-        return False, "Empty payload."
-    if tokens[0] not in ("MUX_32", "MUX_08"):
-        return False, "Token 0 must be MUX_32 or MUX_08."
-
-    token_map: Dict[str, str] = {}
-    for tok in tokens[1:]:
-        if "_" not in tok:
-            return False, f"Malformed token: {tok}"
-        key = tok.split("_", 1)[0]
-        if key in LEGACY_KEYS:
-            return False, f"Legacy key is not allowed: {key}"
-        if key not in SUPPORTED_KEYS:
-            return False, f"Unknown key: {key}"
-        if key in token_map:
-            return False, f"Duplicated key: {key}"
-        token_map[key] = tok
-
-    if tokens[0] == "MUX_08" and ("ENV" in token_map or "LUX" in token_map):
-        return False, "ENV/LUX are only valid for MUX_32."
-
-    required_always = {"MACHINE", "TCYC", "MATDIM", "SENSNUM", "TCH"}
-    missing = [k for k in required_always if k not in token_map]
-    if missing:
-        return False, f"Missing required keys: {', '.join(sorted(missing))}"
-
-    machine_code = _normalize_machine_code(token_map["MACHINE"].split("_", 1)[1])
-    if machine_code not in {"S", "T", "M", "F", "O"}:
-        return False, "Invalid MACHINE value."
-
-    if machine_code in {"S", "T", "M"}:
-        req = {"MATYPE", "TSTYPE"}
-        rej = {"SPD", "ANG", "STR"}
-    elif machine_code == "F":
-        req = {"MATYPE", "TSTYPE", "SPD", "ANG"}
-        rej = {"DISP", "LOAD", "STR"}
-    else:
-        req = {"STR", "MATYPE", "TSTYPE"}
-        rej = {"DISP", "LOAD", "SPD", "ANG", "GRID"}
-
-    missing_specific = [k for k in req if k not in token_map]
-    if missing_specific:
-        return False, f"Missing MACHINE-specific keys: {', '.join(sorted(missing_specific))}"
-
-    rejected = [k for k in rej if k in token_map]
-    if rejected:
-        return False, f"Keys not allowed for MACHINE_{machine_code}: {', '.join(sorted(rejected))}"
-
-    if "GRID" in token_map:
-        if "MATYPE" not in token_map:
-            return False, "GRID requires MATYPE."
-        matype_code = _normalize_matype_code(token_map["MATYPE"].split("_", 1)[1])
-        if matype_code not in {"M", "X", "A"}:
-            return False, "GRID is only valid when MATYPE is M, X, or A."
-
-    if "SMPFQ" in token_map:
-        try:
-            smpfq = int(token_map["SMPFQ"].split("_", 1)[1])
-        except Exception:
-            return False, "SMPFQ must be an integer."
-        if smpfq < 100 or smpfq > 600000:
-            return False, "SMPFQ must be in range 100..600000."
-
-    try:
-        tch = int(token_map["TCH"].split("_", 1)[1])
-    except Exception:
-        return False, "TCH must be an integer."
-    if tch <= 0:
-        return False, "TCH must be > 0."
-
-    return True, ""
+def _validate_keyed_tokens(tokens: List[str]):
+    return validate_keyed_tokens(tokens)
 
 
 def _token_value(tokens: List[str], key: str, default: str = "") -> str:
-    prefix = f"{key}_"
-    for tok in tokens[1:]:
-        if tok.startswith(prefix):
-            return tok[len(prefix):]
-    return default
+    return token_value(tokens, key, default)
 
 
 

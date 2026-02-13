@@ -1,5 +1,9 @@
 import sys
 import time
+try:
+    from payload_schema import parse_keyed_payload_line
+except ImportError:
+    from .payload_schema import parse_keyed_payload_line
 
 # try random; fall back to urandom if needed
 try:
@@ -14,18 +18,6 @@ except ImportError:
         span = hi - lo + 1
         return lo + (urandom.getrandbits(16) % span)
 
-
-CFG_PRESETS = {
-    "CFG1": "MUX_32,ENV_C_H_hPa_KOhms,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_21,SMPFQ_1000",
-    "CFG2": "MUX_32,ENV_C_H_N_N,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_10,SMPFQ_1000",
-}
-
-SUPPORTED_KEYS = {
-    "ENV", "LUX", "MACHINE", "TCYC", "DISP", "LOAD", "HX", "MATYPE", "TSTYPE",
-    "MATDIM", "DBND", "SENSNUM", "TCH", "SMPFQ", "GRID", "SPD", "ANG", "STR",
-}
-
-LEGACY_KEYS = {"TEST", "DELAM", "SAMPLE", "MACH", "SIZE", "MAT", "TSTTYPE", "CH", "SAMPFQ"}
 
 CHANNEL_HEADERS_8 = [
     "1001 <R1> (OHM)", "1002 <R2> (OHM)", "1003 <R3> (OHM)", "1004 <R4> (OHM)",
@@ -95,14 +87,6 @@ class DataHandler:
         while True:
             self._process_command()
 
-    def _normalize_machine(self, raw):
-        val = str(raw).strip().upper()
-        return {"1": "S", "2": "T", "3": "M", "4": "F", "5": "O"}.get(val, val)
-
-    def _normalize_matype(self, raw):
-        val = str(raw).strip().upper()
-        return {"1": "C", "2": "G", "3": "M", "4": "X", "5": "A"}.get(val, val)
-
     def _decode_temp(self, raw):
         val = str(raw).strip().upper()
         return {"1": "C", "2": "F", "0": "N", "C": "C", "F": "F", "N": "N"}.get(val, "N")
@@ -137,78 +121,10 @@ class DataHandler:
         return {"1": "g", "2": "N", "3": "kg", "4": "kN", "g": "g", "n": "N", "kg": "kg", "kn": "kN"}.get(val, "N")
 
     def _parse_config(self, raw_line):
-        expanded = CFG_PRESETS.get(raw_line.strip(), raw_line.strip())
-        tokens = [t.strip() for t in expanded.split(",") if t.strip()]
-        if not tokens:
-            return False, "empty payload", {}
-        if tokens[0] not in ("MUX_32", "MUX_08"):
-            return False, "token0 must be MUX_32 or MUX_08", {}
-
-        token_map = {}
-        for tok in tokens[1:]:
-            if "_" not in tok:
-                return False, "malformed token", {}
-            key = tok.split("_", 1)[0]
-            if key in LEGACY_KEYS:
-                return False, "legacy key rejected", {}
-            if key not in SUPPORTED_KEYS:
-                return False, "unknown key", {}
-            if key in token_map:
-                return False, "duplicated key", {}
-            token_map[key] = tok.split("_", 1)[1]
-
-        if tokens[0] == "MUX_08" and ("ENV" in token_map or "LUX" in token_map):
-            return False, "ENV/LUX require MUX_32", {}
-
-        required = {"MACHINE", "TCYC", "MATDIM", "SENSNUM", "TCH"}
-        for k in required:
-            if k not in token_map:
-                return False, "missing required key", {}
-
-        machine_code = self._normalize_machine(token_map["MACHINE"])
-        if machine_code not in ("S", "T", "M", "F", "O"):
-            return False, "invalid machine value", {}
-
-        if machine_code in ("S", "T", "M"):
-            req, rej = {"MATYPE", "TSTYPE"}, {"SPD", "ANG", "STR"}
-        elif machine_code == "F":
-            req, rej = {"MATYPE", "TSTYPE", "SPD", "ANG"}, {"DISP", "LOAD", "STR"}
-        else:
-            req, rej = {"STR", "MATYPE", "TSTYPE"}, {"DISP", "LOAD", "SPD", "ANG", "GRID"}
-
-        for k in req:
-            if k not in token_map:
-                return False, "missing machine-specific key", {}
-        for k in rej:
-            if k in token_map:
-                return False, "disallowed key for machine", {}
-
-        if "GRID" in token_map:
-            matype = self._normalize_matype(token_map["MATYPE"])
-            if matype not in ("M", "X", "A"):
-                return False, "GRID not valid for MATYPE", {}
-
-        if "SMPFQ" in token_map:
-            try:
-                smpfq = int(token_map["SMPFQ"])
-            except Exception:
-                return False, "invalid SMPFQ", {}
-            if smpfq < 100 or smpfq > 600000:
-                return False, "SMPFQ out of range", {}
-
-        try:
-            channels = int(token_map["TCH"])
-        except Exception:
-            return False, "invalid TCH", {}
-        if channels <= 0:
-            return False, "TCH must be > 0", {}
-
-        return True, "", {
-            "board": tokens[0],
-            "machine": machine_code,
-            "channels": channels,
-            "token_map": token_map,
-        }
+        ok, err, parsed = parse_keyed_payload_line(raw_line, expand_presets=True)
+        if not ok:
+            return False, err, {}
+        return True, "", parsed
 
     def _build_channel_headers(self, channels):
         if channels == 8:
