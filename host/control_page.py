@@ -643,17 +643,29 @@ class ControlPage(ctk.CTkFrame):
                 if "TCH_" in ",".join(tokens):
                     pico_data += f",{_token_value(tokens, 'TCH')}"
                 self.pico_ser = SerialInterface()
-                if self.pico_ser.connect(self.pico_port, 5):
+                if self.pico_ser.connect(self.pico_port, timeout=5, retries=2, retry_delay=0.5):
+                    print(self.pico_ser.get_last_error() or "Failed to connect to control MCU.")
                     return
-                self.pico_ser.send_command(pico_data)
+                if not self.pico_ser.send_command(pico_data):
+                    print(self.pico_ser.get_last_error() or "Failed to send command to control MCU.")
+                    return
 
-            serial_interface.send_command("1")
-            if serial_interface.ser.readline().decode(errors="ignore").strip() != "0":
+            if not serial_interface.send_command("1", auto_recover=True, reconnect_retries=3, reconnect_timeout=2):
+                print(serial_interface.get_last_error() or "Failed to start config handshake.")
                 return
 
-            serial_interface.send_command(",".join(tokens))
-            raw = serial_interface.ser.readline().decode(errors="ignore").strip()
+            ack = serial_interface.read_line(timeout=2, auto_recover=True, reconnect_retries=3, reconnect_timeout=2)
+            if ack != "0":
+                print(serial_interface.get_last_error() or f"Invalid config ACK: {ack}")
+                return
+
+            if not serial_interface.send_command(",".join(tokens), auto_recover=True, reconnect_retries=3, reconnect_timeout=2):
+                print(serial_interface.get_last_error() or "Failed to send keyed payload.")
+                return
+
+            raw = serial_interface.read_line(timeout=3, auto_recover=True, reconnect_retries=3, reconnect_timeout=2)
             if not raw:
+                print(serial_interface.get_last_error() or "No header returned from MCU.")
                 return
             if raw == "ERR":
                 print("MCU rejected payload config.")
