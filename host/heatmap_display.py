@@ -1,7 +1,5 @@
 # heatmap_ctk_refactored.py
 # pip install customtkinter
-import threading
-import time
 
 import customtkinter as ctk
 import matplotlib.pyplot as plt
@@ -38,8 +36,7 @@ class HeatmapApp(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas = canvas
         self.draw_heatmap()
-
-        threading.Thread(target=self.auto_update, daemon=True).start()
+        self.after(1000, self.auto_update)
 
     def draw_heatmap(self):
         self.fig.clf()
@@ -59,23 +56,34 @@ class HeatmapApp(ctk.CTkFrame):
                 "No data available.",
                 ha="center",
                 va="center",
-                transform=self.ax.transAxes
+                transform=self.ax.transAxes,
             )
             self.canvas.draw_idle()
             return
 
         # Compute matrix and plot
-        hm = Heatmap(self.payload, self.waveform.get_ro())
-        mat = hm.calc_pts_diagonal(program_configrations.S5X41_SWITCHER)
+        try:
+            ro = self.waveform.get_ro() if self.waveform else None
+            hm = Heatmap(self.payload, ro)
+            mat = hm.calc_pts_diagonal(program_configrations.S5X41_SWITCHER)
 
-        sns.heatmap(
-            mat,
-            cmap="jet",
-            ax=self.ax,
-            xticklabels=False,
-            yticklabels=False
-        )
-        self._decorate_axes(mat)
+            sns.heatmap(
+                mat,
+                cmap="jet",
+                ax=self.ax,
+                xticklabels=False,
+                yticklabels=False,
+            )
+            self._decorate_axes(mat)
+        except Exception as exc:
+            self.ax.text(
+                0.5, 0.5,
+                f"Heatmap unavailable:\n{exc}",
+                ha="center",
+                va="center",
+                transform=self.ax.transAxes,
+            )
+
         self.canvas.draw_idle()
 
     def set_payload(self, payload: Payload):
@@ -91,8 +99,7 @@ class HeatmapApp(ctk.CTkFrame):
 
         rows = list(range(mat.shape[0]))
         self.ax.set_yticks(rows)
-        self.ax.set_yticklabels([str(i) for i in range(1, mat.shape[0] + 1)],
-                                rotation=0, fontsize=8)
+        self.ax.set_yticklabels([str(i) for i in range(1, mat.shape[0] + 1)], rotation=0, fontsize=8)
         self.ax.set_ylabel("Rows")
 
         ax_top = self.ax.twiny()
@@ -111,6 +118,5 @@ class HeatmapApp(ctk.CTkFrame):
         ax_right.yaxis.set_label_position('right')
 
     def auto_update(self):
-        while True:
-            self.draw_heatmap()
-            time.sleep(1)
+        self.draw_heatmap()
+        self.after(1000, self.auto_update)

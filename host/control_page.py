@@ -8,6 +8,113 @@ import presets  # <-- usar el módulo completo
 import pprint
 import os
 import importlib
+from typing import Dict, List, Tuple
+
+
+CONFIG_PRESETS = {
+    "CFG1": "MUX_32,ENV_C_H_hPa_KOhms,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_21,SMPFQ_1000",
+    "CFG2": "MUX_32,ENV_C_H_N_N,LUX_ALS_16,MACHINE_S,TCYC_500,DISP_1.0_10_1,LOAD_100_1.0_2,MATYPE_C,TSTYPE_C,MATDIM_5_5_1,DBND_Y,SENSNUM_1,TCH_10,SMPFQ_1000",
+}
+
+SUPPORTED_KEYS = {
+    "ENV", "LUX", "MACHINE", "TCYC", "DISP", "LOAD", "HX", "MATYPE", "TSTYPE",
+    "MATDIM", "DBND", "SENSNUM", "TCH", "SMPFQ", "GRID", "SPD", "ANG", "STR"
+}
+
+LEGACY_KEYS = {"TEST", "DELAM", "SAMPLE", "MACH", "SIZE", "MAT", "TSTTYPE", "CH", "SAMPFQ"}
+
+
+def _normalize_machine_code(raw: str) -> str:
+    val = str(raw).strip().upper()
+    return {"1": "S", "2": "T", "3": "M", "4": "F", "5": "O"}.get(val, val)
+
+
+def _normalize_matype_code(raw: str) -> str:
+    val = str(raw).strip().upper()
+    return {"1": "C", "2": "G", "3": "M", "4": "X", "5": "A"}.get(val, val)
+
+
+def _validate_keyed_tokens(tokens: List[str]) -> Tuple[bool, str]:
+    if not tokens:
+        return False, "Empty payload."
+    if tokens[0] not in ("MUX_32", "MUX_08"):
+        return False, "Token 0 must be MUX_32 or MUX_08."
+
+    token_map: Dict[str, str] = {}
+    for tok in tokens[1:]:
+        if "_" not in tok:
+            return False, f"Malformed token: {tok}"
+        key = tok.split("_", 1)[0]
+        if key in LEGACY_KEYS:
+            return False, f"Legacy key is not allowed: {key}"
+        if key not in SUPPORTED_KEYS:
+            return False, f"Unknown key: {key}"
+        if key in token_map:
+            return False, f"Duplicated key: {key}"
+        token_map[key] = tok
+
+    if tokens[0] == "MUX_08" and ("ENV" in token_map or "LUX" in token_map):
+        return False, "ENV/LUX are only valid for MUX_32."
+
+    required_always = {"MACHINE", "TCYC", "MATDIM", "SENSNUM", "TCH"}
+    missing = [k for k in required_always if k not in token_map]
+    if missing:
+        return False, f"Missing required keys: {', '.join(sorted(missing))}"
+
+    machine_code = _normalize_machine_code(token_map["MACHINE"].split("_", 1)[1])
+    if machine_code not in {"S", "T", "M", "F", "O"}:
+        return False, "Invalid MACHINE value."
+
+    if machine_code in {"S", "T", "M"}:
+        req = {"MATYPE", "TSTYPE"}
+        rej = {"SPD", "ANG", "STR"}
+    elif machine_code == "F":
+        req = {"MATYPE", "TSTYPE", "SPD", "ANG"}
+        rej = {"DISP", "LOAD", "STR"}
+    else:
+        req = {"STR", "MATYPE", "TSTYPE"}
+        rej = {"DISP", "LOAD", "SPD", "ANG", "GRID"}
+
+    missing_specific = [k for k in req if k not in token_map]
+    if missing_specific:
+        return False, f"Missing MACHINE-specific keys: {', '.join(sorted(missing_specific))}"
+
+    rejected = [k for k in rej if k in token_map]
+    if rejected:
+        return False, f"Keys not allowed for MACHINE_{machine_code}: {', '.join(sorted(rejected))}"
+
+    if "GRID" in token_map:
+        if "MATYPE" not in token_map:
+            return False, "GRID requires MATYPE."
+        matype_code = _normalize_matype_code(token_map["MATYPE"].split("_", 1)[1])
+        if matype_code not in {"M", "X", "A"}:
+            return False, "GRID is only valid when MATYPE is M, X, or A."
+
+    if "SMPFQ" in token_map:
+        try:
+            smpfq = int(token_map["SMPFQ"].split("_", 1)[1])
+        except Exception:
+            return False, "SMPFQ must be an integer."
+        if smpfq < 100 or smpfq > 600000:
+            return False, "SMPFQ must be in range 100..600000."
+
+    try:
+        tch = int(token_map["TCH"].split("_", 1)[1])
+    except Exception:
+        return False, "TCH must be an integer."
+    if tch <= 0:
+        return False, "TCH must be > 0."
+
+    return True, ""
+
+
+def _token_value(tokens: List[str], key: str, default: str = "") -> str:
+    prefix = f"{key}_"
+    for tok in tokens[1:]:
+        if tok.startswith(prefix):
+            return tok[len(prefix):]
+    return default
+
 
 
 class ComPortMenu(ctk.CTkFrame):
@@ -154,9 +261,9 @@ class ControlPage(ctk.CTkFrame):
 
         def pack_material_test_settings(parent):
             ctk.CTkLabel(parent, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
-            test_type_dropdown = ctk.CTkComboBox(parent, values=["Test Type", "Cyclic (C)", "Monotonic (F)"])
+            test_type_dropdown = ctk.CTkComboBox(parent, values=["Test Type", "Cyclic (C)", "Monotonic (F)", "Not Specified (N)"])
             test_type_dropdown.pack(anchor="w", padx=20, pady=5)
-            material_form_fields["test type"] = {"widget": test_type_dropdown, "validate": lambda val: val in ["Cyclic (C)", "Monotonic (F)"]}
+            material_form_fields["test type"] = {"widget": test_type_dropdown, "validate": lambda val: val in ["Cyclic (C)", "Monotonic (F)", "Not Specified (N)"]}
 
         def pack_displacement_and_load(parent):
             ctk.CTkLabel(parent, text="Displacement", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -211,11 +318,11 @@ class ControlPage(ctk.CTkFrame):
             ctk.CTkLabel(load_cell_row, text="Load Cell Capacity:").pack(side="left", padx=(0, 5))
             load_cell_entry = ctk.CTkEntry(load_cell_row, width=120, placeholder_text="e.g., 500")
             load_cell_entry.pack(side="left")
-            force_units = ctk.CTkComboBox(load_cell_row, values=["g", "N", "kg"], width=80)
+            force_units = ctk.CTkComboBox(load_cell_row, values=["g", "N", "kg", "kN"], width=80)
             force_units.pack(side="left", padx=2)
             machine_form_fields["hx711 load readings"] = {"widget": load_readings, "validate": None}
             machine_form_fields["hx711 load cell capacity"] = {"widget": load_cell_entry, "validate": iv.check_float}
-            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ['mg', 'g', 'N', 'kg', 'kN']}
+            machine_form_fields["hx711 load cell units"] = {"widget": force_units, "validate": lambda val: val in ['g', 'N', 'kg', 'kN']}
 
         def pack_strain(parent):
             ctk.CTkLabel(parent, text="Prototype Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -304,7 +411,7 @@ class ControlPage(ctk.CTkFrame):
                 pack_displacement_and_load(machine_settings_frame)
                 pack_hx711_load(machine_settings_frame)
             elif option == "Festo":
-                ctk.CTkLabel(machine_settings_frame, text="Test Settings", font=("Helvetica", 16, "bold")).pack(anchor="w")
+                pack_test_settings(machine_settings_frame)
                 ip_frame = ctk.CTkFrame(machine_settings_frame, fg_color="transparent")
                 ip_frame.pack(padx=20, pady=5, anchor="w")
                 ctk.CTkLabel(ip_frame, text="Robot IP Address:").pack(side="left", padx=(0, 5))
@@ -467,11 +574,13 @@ class ControlPage(ctk.CTkFrame):
                 pack_sensor_config(material_settings_frame)
             elif option == material_options[3]:
                 self.channels = 10
+                pack_material_test_settings(material_settings_frame)
                 pack_channel(material_settings_frame)
                 pack_contact(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
             elif option == material_options[4] or option == material_options[5]:
                 self.channels = 8
+                pack_material_test_settings(material_settings_frame)
                 pack_channel(material_settings_frame)
                 pack_contact(material_settings_frame)
                 pack_sensor_config(material_settings_frame)
@@ -493,9 +602,163 @@ class ControlPage(ctk.CTkFrame):
                     self.error_flag = 1
                     widget.configure(border_color="red")
 
+        def _machine_code_from_ui() -> str:
+            return {
+                "Shimadzu": "S",
+                "MTS": "T",
+                "Mini-Shimadzu": "M",
+                "Festo": "F",
+                "Angular Bending/Deformation Prototype": "F",
+                "One-Axis Strain Prototype": "O",
+            }.get(self.machine, "")
+
+        def _material_code_from_ui() -> str:
+            return {
+                "CNT-GFW": "C",
+                "GS-GFW": "G",
+                "MWCNT": "M",
+                "MXene": "X",
+                "Cx-Alpha": "A",
+            }.get(self.material, "")
+
+        def _test_type_code(value: str) -> str:
+            if "Cyclic" in value:
+                return "C"
+            if "Monotonic" in value:
+                return "F"
+            return "N"
+
+        def _build_keyed_tokens() -> List[str]:
+            tokens: List[str] = []
+            board_token = "MUX_32" if board == "MUX32" else "MUX_08"
+            tokens.append(board_token)
+
+            if board == "MUX32":
+                temp = payload["temp units"] if payload.get("temp checkbox") else "N"
+                hum = "H" if payload.get("rh checkbox") else "N"
+                pres = payload["pressure units"] if payload.get("pressure checkbox") else "N"
+                gas = payload["gas units"] if payload.get("gas checkbox") else "N"
+                if any(v != "N" for v in (temp, hum, pres, gas)):
+                    tokens.append(f"ENV_{temp}_{hum}_{pres}_{gas}")
+                if payload.get("light checkbox"):
+                    tokens.append(f"LUX_{payload['lux units']}_{payload['lux bits']}")
+
+            machine_code = _machine_code_from_ui()
+            material_code = _material_code_from_ui()
+            if not machine_code:
+                raise ValueError("Select a valid machine.")
+            if not material_code:
+                raise ValueError("Select a valid material.")
+
+            tokens.append(f"MACHINE_{machine_code}")
+            tokens.append(f"TCYC_{payload['repetitions']}")
+
+            disp_unit_map = {"mm": "1", "cm": "2", "in": "3"}
+            force_unit_map = {"g": "1", "N": "2", "kg": "3", "kN": "4"}
+
+            if machine_code in {"S", "T", "M"}:
+                if payload.get("displacement readings"):
+                    unit = disp_unit_map[payload["displacement distance units"]]
+                    tokens.append(f"DISP_{payload['displacement voltage']}_{payload['displacement distance']}_{unit}")
+                if payload.get("load readings"):
+                    unit = force_unit_map[payload["load force units"]]
+                    # Preserves current field semantics (capacity then voltage) to stay aligned with CFG strings.
+                    tokens.append(f"LOAD_{payload['load force']}_{payload['load voltage']}_{unit}")
+            elif machine_code == "F":
+                if "motor speed" in payload:
+                    tokens.append(f"SPD_R_0.0_{payload['motor speed']}_0.0")
+                elif all(k in payload for k in ("initial speed", "final speed", "speed step")):
+                    tokens.append(f"SPD_S_{payload['initial speed']}_{payload['final speed']}_{payload['speed step']}")
+                else:
+                    tokens.append("SPD_N_0_0_0")
+
+                if "angle" in payload:
+                    tokens.append(f"ANG_A_0.0_{payload['angle']}_0.0")
+                elif all(k in payload for k in ("initial angle", "final angle", "angle step")):
+                    tokens.append(f"ANG_V_{payload['initial angle']}_{payload['final angle']}_{payload['angle step']}")
+                else:
+                    tokens.append("ANG_N_0_0_0")
+            else:
+                tokens.append(f"STR_{payload['strain']}_N")
+
+            if self.machine in ["Mini-Shimadzu", "One-Axis Strain Prototype"] and payload.get("hx711 load readings"):
+                hx_unit = force_unit_map[payload["hx711 load cell units"]]
+                tokens.append(f"HX_{payload['hx711 load cell capacity']}_{hx_unit}")
+
+            tokens.append(f"MATYPE_{material_code}")
+            tokens.append(f"TSTYPE_{_test_type_code(payload.get('test type', ''))}")
+            tokens.append(f"MATDIM_{payload['length']}_{payload['width']}_{payload['height']}")
+
+            if payload.get("debond"):
+                tokens.append("DBND_Y")
+
+            tokens.append(f"SENSNUM_{payload['sensor number']}")
+
+            if machine_code != "O" and material_code in {"M", "X", "A"} and payload.get("column") and payload.get("row"):
+                tokens.append(f"GRID_{payload['column']}_{payload['row']}")
+
+            tokens.append(f"TCH_{payload['channels']}")
+            tokens.append(f"SMPFQ_{payload['sampling rate']}")
+
+            return tokens
+
+        def _build_pico_payload() -> str:
+            if not self.need_pico:
+                return ""
+
+            pico_data = f"SET,{payload['repetitions']}C"
+            if self.machine == "Angular Bending/Deformation Prototype":
+                pico_data += ","
+                if payload.get("motor speed"):
+                    pico_data += f"{payload['motor speed']}RPM"
+                else:
+                    pico_data += f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
+
+                if payload.get("angle"):
+                    pico_data += f",{payload['angle']}DEG"
+                else:
+                    pico_data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
+            elif self.machine == "One-Axis Strain Prototype":
+                pico_data += f",{payload['strain']}N,{payload['motor displacement']}mm"
+            return pico_data
+
+        def _send_keyed_payload(tokens: List[str], filename: str, max_data: int, sampling_ms: int, pico_data: str = ""):
+            ok, err = _validate_keyed_tokens(tokens)
+            if not ok:
+                print(f"Invalid payload: {err}")
+                return
+
+            if self.need_pico and pico_data:
+                if "TCH_" in ",".join(tokens):
+                    pico_data += f",{_token_value(tokens, 'TCH')}"
+                self.pico_ser = SerialInterface()
+                if self.pico_ser.connect(self.pico_port, 5):
+                    return
+                self.pico_ser.send_command(pico_data)
+
+            serial_interface.send_command("1")
+            if serial_interface.ser.readline().decode(errors="ignore").strip() != "0":
+                return
+
+            serial_interface.send_command(",".join(tokens))
+            raw = serial_interface.ser.readline().decode(errors="ignore").strip()
+            if not raw:
+                return
+            if raw == "ERR":
+                print("MCU rejected payload config.")
+                return
+
+            channels = int(_token_value(tokens, "TCH"))
+            on_config_selected(
+                raw.split(","),
+                40 if channels == 21 else channels,
+                filename,
+                max_data,
+                sampling_ms,
+            )
+
         def submit_values():
             self.error_flag = 0
-            data = ""
             payload.clear()
             for key, meta in general_fields.items():
                 extract(key, meta)
@@ -506,102 +769,16 @@ class ControlPage(ctk.CTkFrame):
             for key, meta in board_fields.items():
                 extract(key, meta)
 
-            dist_units = ['N', 'mm', 'cm', 'in']
-            force_units = ['mg', 'g', 'N', 'kg', 'kN']
-
             if not self.error_flag:
                 try:
-                    if board == "MUX32":
-                        data = f"MUX32,{payload['temp units'] if payload['temp checkbox'] else 'N'}"
-                        data += f"_{'H' if payload['rh checkbox'] else 'N'}"
-                        data += f"_{payload['pressure units'] if payload['pressure checkbox'] else 'N'}"
-                        data += f"_{payload['gas units'] if payload['gas checkbox'] else 'N'}"
-                        data += f",{payload['lux units'] + '_' + payload['lux bits'] if payload['light checkbox'] else 'N'}"
-                    else:
-                        data = "MUX08"
-
-                    data += ","
-
-                    if self.machine in ["Shimadzu", "MTS", "Mini-Shimadzu"]:
-                        data += "S" if self.machine == "Shimadzu" else ""
-                        data += "T" if self.machine == "MTS" else ""
-                        data += "M" if self.machine == "Mini-Shimadzu" else ""
-                        data += f",{payload['repetitions']}"
-
-                        if not payload['displacement readings']:
-                            payload['displacement voltage'] = payload['displacement distance'] = '0'
-                            payload['displacement distance units'] = 'N'
-                        if not payload['load readings']:
-                            payload['load force'] = payload['load voltage'] = '0'
-                            payload['load force units'] = 'N'
-
-                        data += f",{ 'D' if payload['displacement readings'] else 'N' }_{payload['displacement voltage']}_{payload['displacement distance'] + '_' + str(dist_units.index(payload['displacement distance units']))}"
-                        data += f",{ 'L' if payload['load readings'] else 'N' }_{payload['load force']}_{payload['load voltage'] + '_' + str(force_units.index(payload['load force units']))}"
-
-                    elif self.machine == "Angular Bending/Deformation Prototype":
-                        data += f"F,{payload['repetitions']}"
-                        pico_data = f"SET,{payload['repetitions']}C,"
-                        if payload.get('motor speed'):
-                            data += f",S_0.0_{payload['motor speed']}_0.0"
-                            pico_data += f"{payload['motor speed']}RPM"
-                        else:
-                            data += f"V_{payload['initial speed']}_{payload['final speed']}_{payload['speed step']}"
-                            pico_data += f"VSPD_I{payload['initial speed']}_F{payload['final speed']}_S{payload['speed step']}"
-                        if payload.get('angle'):
-                            data += f",A_0.0_{payload['angle']}_0.0"
-                            pico_data += f",{payload['angle']}DEG"
-                        else:
-                            data += f",V_{payload['initial angle']}_{payload['final angle']}_{payload['angle step']}"
-                            pico_data += f",VDEG_I{payload['initial angle']}_F{payload['final angle']}_S{payload['angle step']}"
-
-                    elif self.machine == "One-Axis Strain Prototype":
-                        data += f"O,{payload['repetitions']}C"
-                        pico_data = f"SET,{payload['repetitions']}C"
-                        pico_data += f",{payload['strain']}N,{payload['motor displacement']}mm"
-                        
-                    if self.machine in ['Mini-Shimadzu', "One-Axis Strain Prototype"]:
-                        if not payload['hx711 load readings']:
-                            payload['hx711 load cell capacity'] = '0'
-                            payload['hx711 load cell units'] = 'N'
-                        data += f",{ 'H' if payload['hx711 load readings'] else 'N' }_{payload['hx711 load cell capacity'] + '_' + str(force_units.index(payload['hx711 load cell units']))}"
-                    else:
-                        data += ",N_0_0"
-
-                    if self.material in ["CNT-GFW", "GS-GFW"]:
-                        data += f",{ 'C' if self.material == 'CNT-GFW' else 'G' }"
-                        data += f",{payload['test type'][-2]}"
-                        data += f",{payload['length']}_{payload['width']}_{payload['height']}"
-                        data += f",{ 'D' if payload['debond'] else 'N' }"
-                        data += f",{payload['sensor number']}"
-                    elif self.material in ["MWCNT", "MXene", "Cx-Alpha"]:
-                        data += ",M" if self.material == "MWCNT" else ""
-                        data += ",X" if self.material == "MXene" else ""
-                        data += ",C" if self.material == "Cx-Alpha" else ""
-                        data += f",{payload['length']}_{payload['width']}_{payload['height']}"
-                        data += f",{payload['column']}_{payload['row']},{payload['sensor number']}"
-
-                    data += f",{payload['channels']}"
-                    print(data)
-
-                    if self.need_pico:
-                        pico_data += f",{payload['channels']}"
-                        self.pico_ser = SerialInterface()
-                        if self.pico_ser.connect(self.pico_port, 5):
-                            return
-                        self.pico_ser.send_command(pico_data)
-                        
-                    serial_interface.send_command("1")
-                    if serial_interface.ser.readline().decode().strip() != '0':
-                        return
-                    serial_interface.send_command(data)
-                    raw = serial_interface.ser.readline().decode().strip()
-
-                    on_config_selected(
-                        raw.split(','),
-                        40 if payload['channels'] == 21 else int(payload['channels']),
-                        payload['filename'],
-                        int(payload['max data']),
-                        int(payload['sampling rate'])
+                    tokens = _build_keyed_tokens()
+                    pico_data = _build_pico_payload()
+                    _send_keyed_payload(
+                        tokens,
+                        payload["filename"],
+                        int(payload["max data"]),
+                        int(payload["sampling rate"]),
+                        pico_data,
                     )
                 except Exception as e:
                     print(e)
@@ -716,7 +893,22 @@ class ControlPage(ctk.CTkFrame):
             if "material_fields" in preset:
                 _apply_to_fields(preset["material_fields"], material_form_fields)
 
+        def quick_send_cfg(cfg_name: str):
+            if board != "MUX32":
+                print(f"{cfg_name} is only defined for MUX32.")
+                return
+            try:
+                tokens = CONFIG_PRESETS[cfg_name].split(",")
+                sampling_ms = int(_token_value(tokens, "SMPFQ", "1000"))
+                filename = file_entry.get().strip() or f"{cfg_name.lower()}.csv"
+                max_data = int(max_data_entry.get()) if max_data_entry.get().isdigit() else 500
+                _send_keyed_payload(tokens, filename, max_data, sampling_ms)
+            except Exception as e:
+                print(e)
+
         ctk.CTkButton(presets_row, text="Aplicar preset", command=apply_preset).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(presets_row, text="Quick CFG1", command=lambda: quick_send_cfg("CFG1")).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(presets_row, text="Quick CFG2", command=lambda: quick_send_cfg("CFG2")).pack(side="left", padx=(0, 8))
         ctk.CTkButton(presets_row, text="Reset", command=reset_values).pack(side="left", padx=6)
 
         save_row = ctk.CTkFrame(presets_frame, fg_color="transparent")
@@ -849,3 +1041,4 @@ class ControlPage(ctk.CTkFrame):
 
     def get_robot(self):
         return self.robot
+

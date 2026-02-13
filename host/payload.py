@@ -51,22 +51,47 @@ class Payload:
         Split `raw_payload` on commas and append each value to its deque.
         'raw_payload' has to be in the same order as the init keys and no headers expected, SCAN # and Time will be auto
         """
-
-        buffer = raw_payload.split(",")
+        buffer = [tok.strip() for tok in raw_payload.split(",")]
 
         expected_size = len(self.keys) - 2
+
+        # Accept MCU frames that prepend scan/time, e.g.:
+        # scan,YYYY-MM-DD_HH:MM:SS,<payload...>,<optional extra telemetry...>
+        scan_from_line = None
+        time_from_line = None
+        if len(buffer) >= expected_size + 2 and buffer[0].isdigit():
+            ts_candidate = buffer[1]
+            try:
+                time_from_line = datetime.strptime(ts_candidate, "%Y-%m-%d_%H:%M:%S").replace(tzinfo=timezone.utc)
+                scan_from_line = int(buffer[0])
+                buffer = buffer[2:]
+            except Exception:
+                # Not a recognized prefixed timestamp format; continue as regular payload.
+                pass
+
+        # Some MCUs append extra fields not present in header; keep only the configured payload window.
+        if len(buffer) > expected_size:
+            buffer = buffer[:expected_size]
+
         if expected_size != len(buffer):
             raise RuntimeError(f"INPUTTED BUFFER IS INVALID FOR PAYLOAD: buffer_size={len(buffer)},"
                                f" expected_key_size={expected_size}")
 
         if scan is None:
-            self.data["Scan"].append(self.curr_seq)
-            self.curr_seq += 1
+            if scan_from_line is not None:
+                self.data["Scan"].append(scan_from_line)
+                self.curr_seq = max(self.curr_seq, scan_from_line + 1)
+            else:
+                self.data["Scan"].append(self.curr_seq)
+                self.curr_seq += 1
         else:
             self.data["Scan"].append(scan)
         if time is None:
-            ts = datetime.now(timezone.utc)
-            self.data["Time"].append(ts)
+            if time_from_line is not None:
+                self.data["Time"].append(time_from_line)
+            else:
+                ts = datetime.now(timezone.utc)
+                self.data["Time"].append(ts)
         else:
             self.data["Time"].append(time)
 

@@ -7,6 +7,11 @@ from payload import Payload
 
 # Patrón típico de las columnas sensoriales: "1-3p (6002)"
 SENSOR_KEY_REGEX = re.compile(r'^\d+-\d+p \(\d{4}\)$')
+AUX_KEYS = {"Scan", "Time", "5001 <LOAD> (VDC)", "5021 <DISP> (VDC)"}
+AUX_HEADER_REGEX = re.compile(r"^\d+\s*<[^>]+>\s*\(.+\)$")
+
+def _is_aux_key(key: str) -> bool:
+    return key in AUX_KEYS or bool(AUX_HEADER_REGEX.match(key))
 
 
 class Heatmap:
@@ -193,15 +198,13 @@ class Heatmap:
         Opción 2: tolera llaves desconocidas (reporta por warning); si strict=True, lanza excepción.
         """
         map_result: Dict[Tuple[int, int], float] = {}
-        print(switcher)
-        print(self.payload_entree.keys())
         # --- Filtrado previo (Opción 1) ---
         filtered_payload_keys = self._filter_payload_keys(switcher)
 
         # Para reporte (Opción 2): todo lo que llegó y no está en switcher
         payload_keys_set = set(self.payload_entree.keys())
         switcher_keys_set = set(switcher.keys())
-        unknown_keys = sorted(list(payload_keys_set - switcher_keys_set))
+        unknown_keys = sorted([k for k in (payload_keys_set - switcher_keys_set) if not _is_aux_key(k)])
 
         # Si hay desconocidas, decide comportamiento según strict
         if unknown_keys:

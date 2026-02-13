@@ -24,14 +24,15 @@ class WaveformApp(ctk.CTkFrame):
         super().__init__(master)
         self.sampling_freq = sampling_freq
         self.is_relative = is_relative
-
         self.payload = payload
-
         self.ro = None
 
         # CHECK WHAT TIME STAMPS ARE SUPPORTED WITH THE PAYLOAD's WINDOW SIZE & THE SAMPLING FREQ
-        base_time_period = {"1ms": 0.001, "5ms": 0.005, "30ms": 0.03, "100ms": 0.1, "500ms": 0.5, "1s": 1, "10s": 10,
-                            "30s": 30, "1m": 60, "5m": 300, "10m": 600, "30m": 1800, "1hr": 3600}
+        base_time_period = {
+            "1ms": 0.001, "5ms": 0.005, "30ms": 0.03, "100ms": 0.1, "500ms": 0.5,
+            "1s": 1, "10s": 10, "30s": 30, "1m": 60, "5m": 300, "10m": 600,
+            "30m": 1800, "1hr": 3600,
+        }
 
         self.time_period = {}
         for period in base_time_period.keys():
@@ -41,7 +42,6 @@ class WaveformApp(ctk.CTkFrame):
 
         # DEFAULT WILL BE THE MEDIAN PT FOR TIME PERIOD -> CURRENT WINDOW DISPLAY FOR THE WAVEFORM
         time_half_len = len(self.time_period) // 2
-
         self.window_size_label = list(self.time_period.keys())[time_half_len]
         self.window_size_disp = self.time_period[self.window_size_label]
 
@@ -55,12 +55,10 @@ class WaveformApp(ctk.CTkFrame):
             body,
             values=list(self.time_period.keys()),
             corner_radius=12,
-            command=self._time_period_switch
+            command=self._time_period_switch,
         )
         self.win_sel.set(self.window_size_label)
         self.win_sel.grid(row=0, column=0, sticky="w", pady=(0, 6))
-
-        self.is_deriv = ctk.StringVar(value="off")
 
         # WAVEFORM
         self.fig, self.ax = plt.subplots(figsize=(5, 4), dpi=100)
@@ -79,16 +77,13 @@ class WaveformApp(ctk.CTkFrame):
             ro_frame.grid(row=0, column=1, pady=5)
 
             ctk.CTkLabel(ro_frame, text="Enter Base Resistance:").grid(row=0, column=0, padx=5)
-
             ro_entry = ctk.CTkEntry(ro_frame)
             ro_entry.grid(row=0, column=1, padx=5)
-
             ctk.CTkButton(ro_frame, text="SET", command=check_and_enter_ro).grid(row=0, column=2, padx=5)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.grid(row=1, column=0, sticky="nsew",
-                                padx=(0, 8), pady=0)
+        self.canvas_widget.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=0)
 
         # CHANNEL SELECT
         channel_grp = ctk.CTkScrollableFrame(body, fg_color="transparent")
@@ -100,14 +95,13 @@ class WaveformApp(ctk.CTkFrame):
         self.mass_sel_btn.pack(anchor="w", pady=(6, 4))
 
         self.channel_box_select: Dict[str, ctk.CTkCheckBox] = {}
-        for ch in (payload.get_channels()):
+        for ch in payload.get_channels():
             cb = ctk.CTkCheckBox(channel_grp, text=ch, command=self._update_graph)
             cb.pack(anchor="w", pady=2)
             self.channel_box_select[ch] = cb
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
-
         body.grid_rowconfigure(0, weight=1)
         body.grid_columnconfigure(0, weight=3)
         body.grid_columnconfigure(1, weight=1)
@@ -118,16 +112,15 @@ class WaveformApp(ctk.CTkFrame):
         '''Switches time period, modifying how much data is shown.'''
         self.window_size_label = value
         self.window_size_disp = self.time_period[value]
-
         self._update_graph()
 
     def _mass_select(self):
         '''Selects every since channel in the list.'''
         # CHECK WHETHER TO SELECT OR UNSELECT ALL -> if a single channel is unselected then the mode will be select al
         # UNSELECT WILL ONLY HAPPEN WHEN ALL CHANNELS ARE TOGGLED ON
-        select_all: bool = False
+        select_all = False
         for ch_s in self.channel_box_select.values():
-            if not ch_s.get():  # NOT SELECTED
+            if not ch_s.get():
                 select_all = True
                 ch_s.select()
 
@@ -144,65 +137,87 @@ class WaveformApp(ctk.CTkFrame):
 
     def _update_graph(self):
         '''Updates graph if a channel is selected.'''
-        selected_channels = [
-            name for name, cb in self.channel_box_select.items() if cb.get()
-        ]
+        selected_channels = [name for name, cb in self.channel_box_select.items() if cb.get()]
         self.ax.clear()
 
         if not selected_channels:
             self.ax.text(0.5, 0.5, "SELECT AT LEAST ONE CHANNEL",
                          ha="center", va="center", transform=self.ax.transAxes)
-        elif (self.is_relative and self.ro == None):
+        elif self.is_relative and self.ro is None:
             self.ax.text(0.5, 0.5, "ENTER A BASE RESISTANCE",
                          ha="center", va="center", transform=self.ax.transAxes)
         else:
-            df = (self.payload.to_dataframe().set_index("Time")[selected_channels])
+            df = self.payload.to_dataframe().set_index("Time")[selected_channels]
 
             his_amount = int(self.window_size_disp * self.sampling_freq)
             df = df.tail(his_amount)
 
             long_df = (df.reset_index()
-                       .melt(id_vars="Time",
-                             var_name="Channel",
-                             value_name="Value"))
+                       .melt(id_vars="Time", var_name="Channel", value_name="Value"))
             long_df["Time"] = pandas.to_datetime(long_df["Time"],
                                                  format="%d/%m/%Y %H:%M:%S:%f",
                                                  utc=True)
+            effective_channels = int(long_df["Channel"].nunique()) if not long_df.empty else 0
+
+            if long_df.empty:
+                self.ax.text(0.5, 0.5, "NO SAMPLES YET",
+                             ha="center", va="center", transform=self.ax.transAxes)
+                self.canvas.draw_idle()
+                return
 
             if not self.is_relative:
-                sns.lineplot(
-                    data=long_df,
-                    x="Time",
-                    y="Value",
-                    hue="Channel",
-                    palette=sns.color_palette("husl", len(selected_channels)),
-                    ax=self.ax,
-                    legend=True
-                )
+                if effective_channels <= 1:
+                    sns.lineplot(
+                        data=long_df,
+                        x="Time",
+                        y="Value",
+                        color=sns.color_palette("husl", 1)[0],
+                        ax=self.ax,
+                        legend=False,
+                    )
+                else:
+                    sns.lineplot(
+                        data=long_df,
+                        x="Time",
+                        y="Value",
+                        hue="Channel",
+                        palette=sns.color_palette("husl", len(selected_channels)),
+                        ax=self.ax,
+                        legend=True,
+                    )
                 self.ax.set_ylabel("Resistance (Ohms)")
-
             else:
                 delta_df = long_df.copy()
                 delta_df['DeltaR_Ro'] = (delta_df['Value'] - self.ro) / self.ro
-                sns.lineplot(
-                    data=delta_df,
-                    x="Time",
-                    y="DeltaR_Ro",
-                    hue="Channel",
-                    palette=sns.color_palette("husl", len(selected_channels)),
-                    ax=self.ax,
-                    legend=True
-                )
-                self.ax.set_ylabel("∆R/Ro")
+                if effective_channels <= 1:
+                    sns.lineplot(
+                        data=delta_df,
+                        x="Time",
+                        y="DeltaR_Ro",
+                        color=sns.color_palette("husl", 1)[0],
+                        ax=self.ax,
+                        legend=False,
+                    )
+                else:
+                    sns.lineplot(
+                        data=delta_df,
+                        x="Time",
+                        y="DeltaR_Ro",
+                        hue="Channel",
+                        palette=sns.color_palette("husl", len(selected_channels)),
+                        ax=self.ax,
+                        legend=True,
+                    )
+                self.ax.set_ylabel("DeltaR/Ro")
 
-            # Manually control the legend with 2 columns
-            handles, labels = self.ax.get_legend_handles_labels()
-            self.ax.legend(handles, labels, ncol=2, loc="upper right", bbox_to_anchor=(1, 1))
-            
+            # Manually control the legend with 2 columns only for multi-channel plots.
+            if effective_channels > 1:
+                handles, labels = self.ax.get_legend_handles_labels()
+                self.ax.legend(handles, labels, ncol=2, loc="upper right", bbox_to_anchor=(1, 1))
+
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             self.fig.autofmt_xdate()
-
             self.ax.set_xlabel("Time")
             self.ax.set_title("Active Resistance of the Channels")
 
