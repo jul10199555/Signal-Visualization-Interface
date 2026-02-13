@@ -25,7 +25,7 @@ class Navbar(ctk.CTkFrame):
         self.nav = ctk.CTkSegmentedButton(
             self,
             width=400,
-            values=["Settings", "Waveform", "DeltaR/Ro", "Heatmap", "Calc."],
+            values=["Settings", "Waveform", "∆R/Ro", "Heatmap", "Calc."],
             corner_radius=12,
             command=self.switch_frame
         )
