@@ -16,7 +16,7 @@ _MCU_DIR = os.path.join(_ROOT_DIR, "MCU")
 if _MCU_DIR not in sys.path:
     sys.path.insert(0, _MCU_DIR)
 
-from payload_schema import CFG_PRESETS, validate_keyed_tokens, token_value
+from payload_schema import validate_keyed_tokens, token_value
 
 
 def _validate_keyed_tokens(tokens: List[str]):
@@ -816,22 +816,7 @@ class ControlPage(ctk.CTkFrame):
             if "material_fields" in preset:
                 _apply_to_fields(preset["material_fields"], material_form_fields)
 
-        def quick_send_cfg(cfg_name: str):
-            if board != "MUX32":
-                print(f"{cfg_name} is only defined for MUX32.")
-                return
-            try:
-                tokens = CONFIG_PRESETS[cfg_name].split(",")
-                sampling_ms = int(_token_value(tokens, "SMPFQ", "1000"))
-                filename = file_entry.get().strip() or f"{cfg_name.lower()}.csv"
-                max_data = int(max_data_entry.get()) if max_data_entry.get().isdigit() else 500
-                _send_keyed_payload(tokens, filename, max_data, sampling_ms)
-            except Exception as e:
-                print(e)
-
         ctk.CTkButton(presets_row, text="Aplicar preset", command=apply_preset).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(presets_row, text="Quick CFG1", command=lambda: quick_send_cfg("CFG1")).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(presets_row, text="Quick CFG2", command=lambda: quick_send_cfg("CFG2")).pack(side="left", padx=(0, 8))
         ctk.CTkButton(presets_row, text="Reset", command=reset_values).pack(side="left", padx=6)
 
         save_row = ctk.CTkFrame(presets_frame, fg_color="transparent")

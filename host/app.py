@@ -18,6 +18,9 @@ from bending_page import BendingPage
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
+# User-adjustable clock offset (seconds) when syncing MCU time from PC time.
+MCU_TIME_SYNC_OFFSET_SECONDS = 1
+
 
 class Navbar(ctk.CTkFrame):
     """Lets user navigate between core parts of the UI."""
@@ -123,6 +126,19 @@ class FirstExecutionMenu(ctk.CTkFrame):
                 on_bending_selected(self.board)
             else:
                 on_board_selected(self.board)
+
+            # One-shot date-time sync after handshake and page transition.
+            def _sync_time_once():
+                ok_sync, payload, ack_code = serial_interface.sync_mcu_datetime(MCU_TIME_SYNC_OFFSET_SECONDS)
+                if ok_sync:
+                    if serial_interface.debug_tx:
+                        print(f"[TIME SYNC] Sent: {payload}")
+                    if serial_interface.debug_rx and ack_code:
+                        print(f"[TIME SYNC] ACK: {ack_code}")
+                else:
+                    print(serial_interface.get_last_error() or "MCU date-time sync failed.")
+
+            master.after(120, _sync_time_once)
 
         super().__init__(master)
         self.grid(row=0, column=0, sticky="nsew")

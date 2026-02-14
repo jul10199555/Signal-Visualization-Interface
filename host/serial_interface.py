@@ -2,6 +2,7 @@ import serial
 import serial.tools.list_ports
 import threading
 import time
+from datetime import datetime, timedelta
 
 # Debug flags for serial monitor logs.
 # Set to True while debugging payload exchange.
@@ -50,6 +51,52 @@ class SerialInterface:
 
     def get_last_error(self) -> str:
         return self.last_error
+
+    def sync_mcu_datetime(self, offset_seconds=2, ack_timeout=0.8):
+        """
+        Sends MCU date-time sync command in the format:
+        YYYY_MM_DD_HH_MM_SS
+        Returns (ok: bool, payload: str, ack_code: str).
+        """
+        if not (self.ser and self.ser.is_open):
+            self.last_error = "Cannot sync date-time: serial link is not connected."
+            self._set_status(self.STATUS_ERROR, self.last_error)
+            return False, "", ""
+
+        try:
+            ts = datetime.now() + timedelta(seconds=float(offset_seconds))
+            payload = ts.strftime("%Y_%m_%d_%H_%M_%S")
+
+            # Clear stale bytes before sending one-shot sync command.
+            try:
+                self.ser.reset_input_buffer()
+            except Exception:
+                pass
+
+            if not self.send_command(payload):
+                return False, "", ""
+
+            ack_code = ""
+            prev_timeout = self.ser.timeout
+            try:
+                self.ser.timeout = ack_timeout
+                raw = self.ser.readline()
+                ack_code = raw.decode(errors="ignore").strip() if raw else ""
+                if ack_code:
+                    self._log_rx(ack_code)
+            except Exception:
+                pass
+            finally:
+                try:
+                    self.ser.timeout = prev_timeout
+                except Exception:
+                    pass
+
+            return True, payload, ack_code
+        except Exception as e:
+            self.last_error = f"Date-time sync failed: {type(e).__name__}: {e}"
+            self._set_status(self.STATUS_ERROR, self.last_error)
+            return False, "", ""
 
     def connect(self, port=None, timeout=1, retries=1, retry_delay=0.5):
         current_port = self.port

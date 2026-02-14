@@ -5,6 +5,15 @@ try:
 except ImportError:
     from .payload_schema import parse_keyed_payload_line
 
+# Dummy storage flag for date-time sync response behavior.
+# Set to False to emulate "microSD missing" warning (0x0F).
+DUMMY_MICROSD_INSERTED = True
+
+# Date-time sync response codes.
+DTT_OK_CODE = "0x00"
+DTT_WARN_INVALID = "0x0E"
+DTT_WARN_MICROSD = "0x0F"
+
 # try random; fall back to urandom if needed
 try:
     import random
@@ -48,6 +57,12 @@ class DataHandler:
     """
 
     def __init__(self):
+        self.micro_sd_inserted = DUMMY_MICROSD_INSERTED
+        self.last_set_datetime = None  # (year, month, day, hour, minute, second)
+        self._reset_to_initial_mode(reset_datetime=False)
+
+    def _reset_to_initial_mode(self, reset_datetime=False):
+        # Reset runtime/session values to idle startup mode.
         self.speed = 0
         self.angle = 0
         self.cycles = 0
@@ -63,6 +78,9 @@ class DataHandler:
         self.telemetry_fields = []  # [{"kind": "...", "unit": "...", "header": "...", "meta": "..."}]
         self.channel_headers = []
         self.scan_counter = 0
+
+        if reset_datetime:
+            self.last_set_datetime = None
 
     def wait(self):
         while not self.ready:
@@ -230,6 +248,59 @@ class DataHandler:
         self.scan_counter += 1
         sys.stdout.write(line + "\n")
 
+    def _is_datetime_sync_command(self, command):
+        parts = command.split("_")
+        if len(parts) != 6:
+            return False
+        for p in parts:
+            if not p.isdigit():
+                return False
+        return True
+
+    def _is_leap_year(self, year):
+        return (year % 4 == 0) and ((year % 100 != 0) or (year % 400 == 0))
+
+    def _days_in_month(self, year, month):
+        if month in (1, 3, 5, 7, 8, 10, 12):
+            return 31
+        if month in (4, 6, 9, 11):
+            return 30
+        if month == 2:
+            return 29 if self._is_leap_year(year) else 28
+        return 0
+
+    def _validate_datetime_sync(self, command):
+        if not self._is_datetime_sync_command(command):
+            return False, ()
+        y, m, d, hh, mm, ss = [int(v) for v in command.split("_")]
+        if y < 2000 or y > 2099:
+            return False, ()
+        if m < 1 or m > 12:
+            return False, ()
+        max_day = self._days_in_month(y, m)
+        if d < 1 or d > max_day:
+            return False, ()
+        if hh < 0 or hh > 23:
+            return False, ()
+        if mm < 0 or mm > 59:
+            return False, ()
+        if ss < 0 or ss > 59:
+            return False, ()
+        return True, (y, m, d, hh, mm, ss)
+
+    def _handle_datetime_sync(self, command):
+        ok, parts = self._validate_datetime_sync(command)
+        if not ok:
+            sys.stdout.write(DTT_WARN_INVALID + "\n")
+            return True
+
+        self.last_set_datetime = parts
+        if self.micro_sd_inserted:
+            sys.stdout.write(DTT_OK_CODE + "\n")
+        else:
+            sys.stdout.write(DTT_WARN_MICROSD + "\n")
+        return True
+
     def _process_command(self):
         command = sys.stdin.readline().strip()
         if not command:
@@ -261,6 +332,10 @@ class DataHandler:
             self._send_data()
             return
 
+        if self._is_datetime_sync_command(command):
+            self._handle_datetime_sync(command)
+            return
+
         if command.startswith("SET"):
             parts = command.split()[1:]
             for p in parts:
@@ -283,7 +358,11 @@ class DataHandler:
             self.paused = True
             return
 
-        if command.startswith("EXIT") or command.startswith("END"):
+        if command.startswith("END"):
+            self._reset_to_initial_mode(reset_datetime=False)
+            return
+
+        if command.startswith("EXIT"):
             sys.exit()
 
         print("No command received")
