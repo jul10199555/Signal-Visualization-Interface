@@ -1,6 +1,4 @@
 import serial
-import serial.tools.list_ports
-import threading
 import time
 from datetime import datetime, timedelta
 
@@ -45,9 +43,6 @@ class SerialInterface:
                 self.status_callback(state, reason)
             except Exception:
                 pass
-
-    def get_status(self):
-        return self.status, self.status_reason
 
     def get_last_error(self) -> str:
         return self.last_error
@@ -249,21 +244,3 @@ class SerialInterface:
     def mark_ready(self, reason="Connection idle."):
         if self.ser and self.ser.is_open:
             self._set_status(self.STATUS_READY, reason)
-
-    def read_lines(self, plot):
-        """
-        Legacy threaded reader. Prefer explicit read_line() in app flow.
-        """
-
-        def _read():
-            while self.ser and self.ser.is_open:
-                try:
-                    line = self.read_line(timeout=self.ser.timeout)
-                    if line:
-                        plot(line)
-                except Exception as e:
-                    self.last_error = f"Read loop failed: {e}"
-                    self._set_status(self.STATUS_ERROR, self.last_error)
-                    break
-
-        threading.Thread(target=_read, daemon=True).start()

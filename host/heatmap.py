@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Dict, Tuple, Optional
 import numpy
 import re
 import warnings
@@ -243,26 +243,3 @@ class Heatmap:
             )
 
         return map_result
-
-    # UPDATE THE HEATMAP'S PAYLOAD ENTRE that's being used
-    def set_payload_entree(self, payload_entree: Dict[str, Any]):
-        self.payload_entree = payload_entree
-
-    # (Opcional) utilitario para validar encabezados sin mapear
-    def validate_headers(self, switcher: Dict[str, Tuple]) -> Dict[str, List[str]]:
-        """
-        Devuelve un dict con: faltantes en payload, desconocidas en payload, y coincidencias.
-        Útil para diagnóstico rápido.
-        """
-        payload_keys = set(self.payload_entree.keys())
-        switcher_keys = set(switcher.keys())
-
-        unknown = sorted(list(payload_keys - switcher_keys))
-        missing = sorted(list(switcher_keys - payload_keys))
-        common = sorted(list(payload_keys & switcher_keys))
-
-        return {
-            "unknown_in_payload": unknown,
-            "missing_from_payload": missing,
-            "matched": common,
-        }

@@ -13,10 +13,6 @@ from payload import Payload
 from heatmap import Heatmap
 
 #  ─── CustomTkinter Setup ─────────────────────────────────────────────────────
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
-
-
 class HeatmapApp(ctk.CTkFrame):
     def __init__(self, master, payload: Payload, waveform: WaveformApp = None):
         super().__init__(master)
@@ -85,9 +81,6 @@ class HeatmapApp(ctk.CTkFrame):
             )
 
         self.canvas.draw_idle()
-
-    def set_payload(self, payload: Payload):
-        self.payload = payload
 
     def _decorate_axes(self, mat):
         """Add ticks, labels, and secondary axes for clarity."""
