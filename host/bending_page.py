@@ -1,4 +1,32 @@
-# bending_page.py
+# ============================================================
+# UI: bending_page.py — PC Interface (CustomTkinter) / Python
+# Target firmware: Raspberry Pi Pico (RP2040) / MicroPython
+#
+# Serial protocol / Handshake:
+#   PC -> "0\n"  | Pico -> "0\n"  | luego imprime "READY\n"
+# RX formats:
+#   - Plain text: READY, RUN, STOP, PAUSE, CALIBRANDO, CALIBRACION LISTA, ERROR...
+#   - Data frames (Python-list style):
+#       ["modo", X, "velocity", v, "angle", a, "resistance", hx_raw]
+#     donde "resistance" es valor crudo/filtrado del HX711 (RAW counts) por defecto.
+#   - IDLE continuous resistance (firmware):
+#       ["resistance", hx_raw]
+#     (sin modo/velocity/angle). La UI debe mantener el último valor mostrado.
+#
+# Version:      v1.0.1
+# Build date:   2026-02-28
+# Build time:   14:00:00 (America/Merida)
+# Commit/Tag:   (fill if using git)
+#
+# Changelog:
+# - v1.0.1:
+#   * RX parser ahora soporta frames en IDLE: ["resistance", value]
+#   * Lectura de resistencia (RAW + Rg interpretada) se muestra permanentemente:
+#       - Si no llegan datos, se conserva el último valor mostrado.
+#       - Si llegan datos, se actualiza inmediatamente.
+#   * Se construye la sección "Lectura" desde el inicio (no depende de Submit).
+# ============================================================
+
 import customtkinter as ctk
 import threading
 import time
@@ -58,16 +86,7 @@ class BendingPage(ctk.CTkFrame):
         self.mode_running = False
         self.calibrating = False
 
-        # ===== Bridge / HX711 interpretación (NUEVO + CORREGIDO) =====
-        # IMPORTANTE:
-        # Tu firmware está enviando "resistance" como RAW HX711 counts:
-        #   ['modo', 1, ..., 'resistance', -6833xxx]
-        #
-        # Entonces debemos permitir interpretar ese RAW con offset/scale:
-        #   ratio = (raw - raw_offset) / raw_scale   -> ≈ Vdiff/Vcc (adimensional)
-        #   vdiff = ratio * vcc
-        #
-        # Luego despejamos Rg.
+        # ===== Bridge / HX711 interpretación =====
         self.bridge_defaults = {
             "r1": 100000.0,
             "r2": 100000.0,
@@ -78,12 +97,13 @@ class BendingPage(ctk.CTkFrame):
 
             # RAW calibration
             "raw_offset": 0.0,
-            "raw_scale": 8388608.0,  # 2^23 como punto de partida razonable
+            "raw_scale": 8388608.0,  # 2^23 como punto de partida razonable (NO es ratio físico)
         }
 
         # Para debug/visualización
         self.last_hx_value = None   # último valor recibido en campo 'resistance' (RAW u otro)
-        self.last_rg_value = None   # último Rg calculado
+        self.last_rg_value = None   # último Rg calculado (Ω)
+        self.last_rx_ts = None      # time.perf_counter() cuando llegó el último frame de resistencia
 
         # ===== Layout base =====
         self.grid_rowconfigure(1, weight=1)
@@ -164,7 +184,7 @@ class BendingPage(ctk.CTkFrame):
         )
         self.mode_desc.pack(fill="x")
 
-        # ====== (NUEVO) Configuración Bridge / Interpretación HX711 ======
+        # ====== Configuración Bridge / Interpretación HX711 ======
         self.bridge_frame = ctk.CTkFrame(self.form, fg_color="transparent")
         self.bridge_frame.pack(fill="x", pady=(2, 12))
 
@@ -228,17 +248,17 @@ class BendingPage(ctk.CTkFrame):
         self.bridge_hint = ctk.CTkLabel(
             self.bridge_frame,
             text=(
-                "Topología:\n"
-                "  R1 y R2 arriba a Vcc; R3 abajo izq a GND; Galga (Rg) abajo der a GND.\n"
-                "  El firmware envía 'resistance' como valor del HX711 (RAW en tu caso).\n"
-                "  Para RAW: RATIO = (RAW - offset) / scale  ≈  Vdiff/Vcc.\n"
+                "Nota:\n"
+                "  El firmware envía ['resistance', RAW] también en IDLE.\n"
+                "  Esta UI mantiene el último valor mostrado.\n"
+                "  Si estás usando Wheatstone real, calibra raw_offset/raw_scale (2 puntos ideal).\n"
             ),
             text_color="#999999",
             justify="left"
         )
         self.bridge_hint.pack(anchor="w", pady=(6, 0))
 
-        # Cargar defaults (SIN disparar callbacks que rompan init)
+        # Cargar defaults
         self.r1_entry.insert(0, str(self.bridge_defaults["r1"]))
         self.r2_entry.insert(0, str(self.bridge_defaults["r2"]))
         self.r3_entry.insert(0, str(self.bridge_defaults["r3"]))
@@ -248,7 +268,6 @@ class BendingPage(ctk.CTkFrame):
             self.hx_invert_switch.select()
         else:
             self.hx_invert_switch.deselect()
-
         self.raw_offset_entry.insert(0, str(self.bridge_defaults["raw_offset"]))
         self.raw_scale_entry.insert(0, str(self.bridge_defaults["raw_scale"]))
 
@@ -271,7 +290,6 @@ class BendingPage(ctk.CTkFrame):
 
         self.inputs = {}
         self.errors = {}
-
         self._build_mode_specific_fields("Mode 1")
 
         # — Sección Restricciones —
@@ -279,14 +297,16 @@ class BendingPage(ctk.CTkFrame):
         self.rules.pack(fill="x", pady=(8, 12))
         self._render_rules_text()
 
-        # — Sección Lectura (aparece tras Submit válido) —
+        # — Sección Lectura (AHORA SIEMPRE VISIBLE) —
         self.read_frame = ctk.CTkFrame(self.form, fg_color="transparent")
+        self.read_section_shown = False
+        self._build_read_section()
+        self.read_section_shown = True
 
         # — Botonera —
         submit_row = ctk.CTkFrame(self.form, fg_color="transparent")
         submit_row.pack(fill="x", pady=(6, 8))
 
-        # OJO: status_label se crea aquí; antes NO existe
         self.status_label = ctk.CTkLabel(submit_row, text="", text_color="#999999")
         self.status_label.pack(side="right", padx=8)
 
@@ -405,24 +425,24 @@ class BendingPage(ctk.CTkFrame):
             )
             warn.pack(pady=8, padx=8, anchor="w")
 
-        # Ahora sí: enganchar eventos de bridge (ya existe status_label)
+        # Enganchar eventos de bridge
         self._wire_bridge_callbacks()
 
-        # >>>> IMPORTANTE: inicializar estados al final <<<<
+        # Inicializar estados
         self._update_controls_state()
-        self._set_status("UI lista. Esperando Submit o Calibración.")
+        self._set_status("UI lista. Esperando datos (resistance en IDLE) / Submit / Calibración.")
 
-    # ------------------ Bridge wiring (evita crash en init) ------------------
+        # >>> Lectura permanente: iniciar lector desde el inicio <<<
+        self._start_reader()
+
+    # ------------------ Bridge wiring ------------------
     def _wire_bridge_callbacks(self):
-        # En CustomTkinter, podemos simplemente usar bind a <KeyRelease>
-        # para detectar cambios sin disparar callbacks al construir.
         for ent in (self.r1_entry, self.r2_entry, self.r3_entry, self.vcc_entry,
                     self.raw_offset_entry, self.raw_scale_entry):
             try:
                 ent.bind("<KeyRelease>", lambda _e: self._on_bridge_changed())
             except Exception:
                 pass
-
         try:
             self.incoming_combo.configure(command=lambda _v: self._on_bridge_changed())
         except Exception:
@@ -432,13 +452,15 @@ class BendingPage(ctk.CTkFrame):
         except Exception:
             pass
 
-    # ===================== Bridge helpers =====================
     def _on_bridge_changed(self):
-        # No debe romper aunque se llame temprano
         self._set_status("Bridge config updated.")
+        # Recalcular inmediatamente con el último RAW (si existe)
+        if self.last_hx_value is not None:
+            rg = self._interpret_hx_to_resistance(self.last_hx_value)
+            self.last_rg_value = rg
+            self._update_resistance_only(rg)
 
     def _on_tare(self):
-        # Usa el último RAW recibido como offset
         if self.last_hx_value is None:
             self._set_status("TARE: aún no hay RAW recibido.")
             return
@@ -495,15 +517,10 @@ class BendingPage(ctk.CTkFrame):
     @staticmethod
     def _solve_rg_from_vdiff(vdiff_volts: float, vcc: float, r1: float, r2: float, r3: float):
         """
-        Topología:
+        Topología (la que estaba en UI):
           V_L = Vcc * (R3/(R1+R3))
           V_R = Vcc * (Rg/(R2+Rg))
           Vdiff = V_L - V_R
-
-        Despeje:
-          V_R = V_L - Vdiff
-          k = V_R / Vcc
-          Rg = (k*R2)/(1-k), con 0 < k < 1
         """
         v_left = vcc * (r3 / (r1 + r3))
         v_right = v_left - vdiff_volts
@@ -517,13 +534,8 @@ class BendingPage(ctk.CTkFrame):
         return rg
 
     def _interpret_hx_to_resistance(self, hx_value):
-        """
-        hx_value viene del firmware en el campo 'resistance'.
-        En tu caso real: RAW HX711 counts (ej. -6833xxx).
-        """
         if hx_value is None:
             return None
-
         try:
             x = float(hx_value)
         except Exception:
@@ -542,15 +554,14 @@ class BendingPage(ctk.CTkFrame):
 
         # Convertir a vdiff (volts)
         if incoming == "Raw counts (HX711)":
-            # ratio ~= Vdiff/Vcc
-            ratio = (x - p["raw_offset"]) / p["raw_scale"]
+            ratio = (x - p["raw_offset"]) / p["raw_scale"]   # aproximación configurable
             vdiff = ratio * vcc
         elif incoming == "Vdiff/Vcc":
             vdiff = x * vcc
         else:
             vdiff = x
 
-        # Resolver Rg con ambos signos por si A+/A- están invertidos
+        # Resolver Rg con ambos signos por seguridad
         rg = self._solve_rg_from_vdiff(vdiff, vcc, r1, r2, r3)
         if rg is None:
             rg = self._solve_rg_from_vdiff(-vdiff, vcc, r1, r2, r3)
@@ -785,59 +796,73 @@ class BendingPage(ctk.CTkFrame):
             payload = {"modo": 0}
         return json.dumps(payload, separators=(",", ":"))
 
-    # ----- Parser RX -----
+    # ----- Parsers RX -----
     @staticmethod
-    def _parse_modo_velocity_angle(s: str):
+    def _parse_kv_list(s: str):
         """
-        Devuelve (modo, velocity, angle, resistance)
-        resistance puede ser None si no viene.
+        Parsea frames tipo Python-list: ["k1", v1, "k2", v2, ...]
+        Devuelve dict con keys en lower(), o None.
         """
         try:
             lst = ast.literal_eval(s)
             if not isinstance(lst, list):
-                return None, None, None, None
-
+                return None
             d = {}
             i = 0
             while i + 1 < len(lst):
                 k = lst[i]
                 v = lst[i + 1]
                 if isinstance(k, str):
-                    key = k.strip().lower()
-                    d[key] = v
+                    d[k.strip().lower()] = v
                 i += 2
-
-            modo = d.get("modo")
-            velocity = d.get("velocity", d.get("velocidad"))
-            angle = d.get("angle", d.get("angulo"))
-            resistance = d.get("resistance", d.get("resistencia"))
-
-            try:
-                modo = int(modo)
-            except Exception:
-                return None, None, None, None
-
-            def to_float(x):
-                if isinstance(x, (int, float)):
-                    return float(x)
-                if isinstance(x, str):
-                    x = x.strip()
-                    try:
-                        return float(x)
-                    except Exception:
-                        return None
-                return None
-
-            velocity = to_float(velocity)
-            angle = to_float(angle)
-            res_val = to_float(resistance) if resistance is not None else None
-
-            if (velocity is None) or (angle is None):
-                return None, None, None, None
-
-            return modo, velocity, angle, res_val
+            return d
         except Exception:
-            return None, None, None, None
+            return None
+
+    @staticmethod
+    def _to_float(x):
+        if isinstance(x, (int, float)):
+            return float(x)
+        if isinstance(x, str):
+            x = x.strip()
+            try:
+                return float(x)
+            except Exception:
+                return None
+        return None
+
+    def _extract_frame(self, raw_line: str):
+        """
+        Devuelve:
+          modo(int|None), velocity(float|None), angle(float|None), resistance(float|None), dict_frame(optional)
+        Soporta:
+          - ["modo",..,"velocity",..,"angle",..,"resistance",..]
+          - ["resistance",..]  (IDLE)
+        """
+        d = self._parse_kv_list(raw_line)
+        if not d:
+            return None, None, None, None, None
+
+        res = d.get("resistance", d.get("resistencia"))
+        res_val = self._to_float(res) if res is not None else None
+
+        modo = d.get("modo")
+        velocity = d.get("velocity", d.get("velocidad"))
+        angle = d.get("angle", d.get("angulo"))
+
+        modo_i = None
+        vel_f = None
+        ang_f = None
+        try:
+            if modo is not None:
+                modo_i = int(modo)
+        except Exception:
+            modo_i = None
+
+        vel_f = self._to_float(velocity) if velocity is not None else None
+        ang_f = self._to_float(angle) if angle is not None else None
+
+        return modo_i, vel_f, ang_f, res_val, d
 
     # ===================== Calibración: control de UI =====================
     def _set_calibrating_ui(self, flag: bool):
@@ -874,7 +899,6 @@ class BendingPage(ctk.CTkFrame):
 
             self.back_btn.configure(state="disabled")
 
-            # Bridge config también la deshabilitamos durante calibración
             for w in (self.r1_entry, self.r2_entry, self.r3_entry, self.vcc_entry,
                       self.incoming_combo, self.hx_invert_switch,
                       self.raw_offset_entry, self.raw_scale_entry, self.tare_btn):
@@ -955,13 +979,23 @@ class BendingPage(ctk.CTkFrame):
                         time.sleep(0.003)
                         continue
 
-                    print(f"[RX] {raw}")
-                    modo, vel, ang, res = self._parse_modo_velocity_angle(raw)
+                    # Debug
+                    # print(f"[RX] {raw}")
 
-                    # Guarda el último valor de HX aunque no se pueda resolver
+                    modo, vel, ang, res, d = self._extract_frame(raw)
+
+                    # 1) Siempre: si viene resistance (incluye IDLE), actualizamos display
                     if res is not None:
                         self.last_hx_value = res
+                        self.last_rx_ts = time.perf_counter()
 
+                        rg_ohm = self._interpret_hx_to_resistance(res)
+                        self.last_rg_value = rg_ohm
+
+                        # Actualiza SOLO resistencia (no pisa angle/speed si vienen None)
+                        self._update_resistance_only(rg_ohm)
+
+                    # 2) Si viene frame completo (modo/vel/ang), entonces además hacemos logging + UI completa
                     if (modo is not None) and (vel is not None) and (ang is not None):
                         if modo == self.expected_modo or modo == 0:
                             rg_ohm = self._interpret_hx_to_resistance(res)
@@ -973,7 +1007,6 @@ class BendingPage(ctk.CTkFrame):
                                     self.logging_active = True
                                     self.log_start_ts = now
                                 t_rel = now - self.log_start_ts
-
                                 self.data_rows.append([t_rel, float(vel), float(ang), rg_ohm])
 
                             self._update_readings(modo, ang, vel, rg_ohm)
@@ -988,7 +1021,7 @@ class BendingPage(ctk.CTkFrame):
         self.reader_thread = threading.Thread(target=_worker, daemon=True)
         self.reader_thread.start()
 
-    # ===================== Status (CORREGIDO: no truena si aún no existe label) =====================
+    # ===================== Status =====================
     def _safe_status_direct(self, text: str):
         try:
             if hasattr(self, "status_label") and self.status_label is not None:
@@ -1000,10 +1033,45 @@ class BendingPage(ctk.CTkFrame):
         try:
             self.after(0, lambda: self._safe_status_direct(text))
         except Exception:
-            # si after falla por construcción, no rompemos
             self._safe_status_direct(text)
 
-    # ===================== UI update readings =====================
+    # ===================== UI updates =====================
+    def _format_resistance_display(self, rg_value):
+        """
+        Muestra:
+          - Si rg_value resuelve: valor de Rg (Ω) en formato humano.
+          - Si no: conserva "N/E" pero agrega RAW para diagnóstico si existe.
+        """
+        if rg_value is None:
+            if self.last_hx_value is None:
+                return "N/E"
+            try:
+                return f"N/E (RAW {float(self.last_hx_value):.0f})"
+            except Exception:
+                return "N/E"
+
+        try:
+            rv = float(rg_value)
+            if rv >= 1e6:
+                return f"{rv:.2f}"
+            elif rv >= 1e3:
+                return f"{rv:.3f}"
+            else:
+                return f"{rv:.6f}"
+        except Exception:
+            return "N/E"
+
+    def _update_resistance_only(self, rg_value):
+        """
+        Actualiza únicamente la etiqueta de resistencia (permanente),
+        sin depender de modo/vel/ángulo.
+        """
+        def _do():
+            if hasattr(self, "resistance_value_label"):
+                self.resistance_value_label.configure(text=self._format_resistance_display(rg_value))
+
+        self.after(0, _do)
+
     def _update_readings(self, mode_val: int, angle_val: float, speed_val: float, resistance_val=None):
         def _do():
             if hasattr(self, "mode_value_label"):
@@ -1026,28 +1094,7 @@ class BendingPage(ctk.CTkFrame):
                     self.speed_value_label.configure(text=str(speed_val))
 
             if hasattr(self, "resistance_value_label"):
-                if resistance_val is None:
-                    # MUY IMPORTANTE: ya NO te deja "ciega"
-                    if self.last_hx_value is None:
-                        txt = "N/E"
-                    else:
-                        try:
-                            txt = f"N/E (RAW {float(self.last_hx_value):.0f})"
-                        except Exception:
-                            txt = "N/E"
-                else:
-                    try:
-                        rv = float(resistance_val)
-                        # formato humano
-                        if rv >= 1e6:
-                            txt = f"{rv:.2f}"
-                        elif rv >= 1e3:
-                            txt = f"{rv:.3f}"
-                        else:
-                            txt = f"{rv:.6f}"
-                    except Exception:
-                        txt = "N/E"
-                self.resistance_value_label.configure(text=txt)
+                self.resistance_value_label.configure(text=self._format_resistance_display(resistance_val))
 
             if hasattr(self, "samples_label"):
                 with self.log_lock:
@@ -1131,14 +1178,11 @@ class BendingPage(ctk.CTkFrame):
         self.mode_running = True
         self._update_controls_state()
 
-        if not hasattr(self, "read_section_shown") or not self.read_section_shown:
-            self._build_read_section()
-            self.read_section_shown = True
-            self.plot_section.pack(fill="both", expand=True, pady=(8, 10))
-
+        # Asegurar lector activo
         self._start_reader()
 
         if _HAS_MPL:
+            self.plot_section.pack(fill="both", expand=True, pady=(8, 10))
             self.live_enabled = True
             self.live_switch.select()
             self._ensure_plot_initialized()
@@ -1195,6 +1239,10 @@ class BendingPage(ctk.CTkFrame):
 
             self.mode_running = False
             self._set_calibrating_ui(False)
+
+            # Reiniciar lector permanente
+            self.stop_event.clear()
+            self._start_reader()
 
             self._set_status("CSV exportado.")
         except Exception as e:
